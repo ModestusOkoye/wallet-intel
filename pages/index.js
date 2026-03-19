@@ -391,7 +391,7 @@ export default function Home() {
     setLoading(true); setError(''); setCsvResults(null);
     try {
       const text = await csvFile.text();
-      const addrs = [...text.matchAll(/0x[a-fA-F0-9]{40}/g)].map(m => m[0]);
+      const lines = text.split(/[\n,\r]+/); const addrs = lines.map(l => l.trim().replace(/["'\s]+/g, '')).filter(l => l.length === 42 && l.toLowerCase().startsWith('0x'));
       const unique = [...new Set(addrs)];
       if (!unique.length) { setError('No Ethereum addresses found in this CSV.'); setLoading(false); return; }
       const res = await fetch('/api/lookup', {
