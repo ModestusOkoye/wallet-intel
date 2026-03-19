@@ -5,16 +5,24 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'API key not configured' });
   }
 
-  // POST — batch address label lookup
   if (req.method === 'POST') {
     const { addresses } = req.body;
     if (!addresses || !Array.isArray(addresses) || addresses.length === 0) {
       return res.status(400).json({ error: 'addresses array required' });
     }
 
+    // Strip header rows, quotes, spaces — only keep real 0x addresses
+    const valid = addresses
+      .map(a => String(a).trim().replace(/["'\s]/g, ''))
+      .filter(a => /^0x[a-fA-F0-9]{40}$/.test(a));
+
+    if (valid.length === 0) {
+      return res.status(400).json({ error: 'No valid Ethereum addresses found' });
+    }
+
     const chunks = [];
-    for (let i = 0; i < addresses.length; i += 50) {
-      chunks.push(addresses.slice(i, i + 50));
+    for (let i = 0; i < valid.length; i += 50) {
+      chunks.push(valid.slice(i, i + 50));
     }
 
     try {
@@ -38,16 +46,13 @@ export default async function handler(req, res) {
     }
   }
 
-  // GET — transfers for relationship map
   if (req.method === 'GET') {
     const { address } = req.query;
     if (!address) return res.status(400).json({ error: 'address param required' });
 
     try {
       const url = `https://api.arkm.com/transfers?base=${address}&flow=all&limit=30&usdGte=500`;
-      const response = await fetch(url, {
-        headers: { 'API-Key': apiKey },
-      });
+      const response = await fetch(url, { headers: { 'API-Key': apiKey } });
       if (!response.ok) {
         const text = await response.text();
         return res.status(response.status).json({ error: `Arkham API error: ${text}` });
