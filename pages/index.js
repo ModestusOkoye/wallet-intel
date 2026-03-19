@@ -355,21 +355,27 @@ export default function Home() {
   const [results, setResults] = useState({});
   const [singleAddr, setSingleAddr] = useState('');
   const [multiAddrs, setMultiAddrs] = useState('');
-  const [csvFile, setCsvFile] = useState(null);
-  const [csvName, setCsvName] = useState('');
+  // CSV state
   const [csvResults, setCsvResults] = useState(null);
   const [csvGroupTab, setCsvGroupTab] = useState('All');
+  const [csvName, setCsvName] = useState('');
   const [csvCopied, setCsvCopied] = useState(null);
+  const [csvAddresses, setCsvAddresses] = useState([]); // detected addresses before lookup
   const fileInputRef = useRef(null);
 
   const isDark = theme === 'dark';
-  const bg = isDark ? '#0A0E1A' : '#131824';
-  const surface = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.05)';
-  const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.1)';
-  const textColor = isDark ? '#E8E8E8' : '#D8E0EE';
+  const bg = '#0A0E1A';
+  const surface = 'rgba(255,255,255,0.04)';
+  const borderColor = 'rgba(255,255,255,0.08)';
+  const textColor = '#E8E8E8';
   const subColor = '#5A6A8A';
-  const inputStyle = { background: 'rgba(255,255,255,0.05)', border: `1px solid ${borderColor}`, borderRadius: 6, color: textColor, fontFamily: "'Space Mono',monospace", fontSize: 13, outline: 'none', padding: '10px 14px', width: '100%', boxSizing: 'border-box' };
+  const inputStyle = {
+    background: 'rgba(255,255,255,0.05)', border: `1px solid ${borderColor}`,
+    borderRadius: 6, color: textColor, fontFamily: "'Space Mono',monospace",
+    fontSize: 13, outline: 'none', padding: '10px 14px', width: '100%', boxSizing: 'border-box',
+  };
 
+  // ── Single / Multi lookup ──────────────────────────────────────────────────
   const doLookup = async (addresses) => {
     if (!addresses.length) return;
     setLoading(true); setError(''); setResults({});
@@ -386,34 +392,46 @@ export default function Home() {
     setLoading(false);
   };
 
-  const handleCSV = async () => {
-    if (!csvFile) return;
+  // ── CSV upload → detect addresses, show count, wait for Look Up ────────────
+  const handleCSVFile = async (file) => {
+    if (!file) return;
+    setCsvName(file.name);
+    setCsvResults(null);
+    setCsvAddresses([]);
+    setCsvGroupTab('All');
+    setError('');
+    try {
+      const text = await file.text();
+      const matches = text.match(/0x[a-fA-F0-9]{40}/gi) || [];
+      const unique = [...new Set(matches.map(a => a.toLowerCase()))];
+      if (!unique.length) { setError('No Ethereum addresses found in this file.'); return; }
+      setCsvAddresses(unique);
+    } catch (err) { setError(err.message); }
+  };
+
+  const runCSVLookup = async () => {
+    if (!csvAddresses.length) return;
     setLoading(true); setError(''); setCsvResults(null);
     try {
-      const text = await csvFile.text();
-      const lines = text.split(/[\n,\r]+/); const addrs = lines.map(l => l.trim().replace(/["'\s]+/g, '')).filter(l => l.length === 42 && l.toLowerCase().startsWith('0x'));
-      const unique = [...new Set(addrs)];
-      if (!unique.length) { setError('No Ethereum addresses found in this CSV.'); setLoading(false); return; }
       const res = await fetch('/api/lookup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ addresses: unique }),
+        body: JSON.stringify({ addresses: csvAddresses }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setCsvResults(data);
-      setCsvGroupTab('All');
     } catch (err) { setError(err.message); }
     setLoading(false);
   };
 
   const clearCSV = () => {
-    setCsvFile(null); setCsvName(''); setCsvResults(null);
-    setCsvGroupTab('All'); setError('');
+    setCsvResults(null); setCsvName(''); setCsvGroupTab('All');
+    setCsvAddresses([]); setError('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // CSV grouped results
+  // ── CSV grouped data ───────────────────────────────────────────────────────
   const csvEntries = csvResults ? Object.entries(csvResults) : [];
   const csvGroups = { All: csvEntries, CEX: [], Fund: [], DeFi: [], Whale: [], Unknown: [] };
   csvEntries.forEach(([addr, entry]) => { csvGroups[classifyEntity(entry)].push([addr, entry]); });
@@ -431,7 +449,7 @@ export default function Home() {
 
   const copyGroupSQL = (groupName) => {
     const addrs = csvGroups[groupName].map(([addr]) => `  '${addr}'`).join(',\n');
-    const sql = `-- ${groupName} addresses from Wallet Intel (${csvGroups[groupName].length} wallets)\nLOWER(address) IN (\n${addrs}\n)`;
+    const sql = `-- ${groupName} addresses (${csvGroups[groupName].length} wallets)\nLOWER(address) IN (\n${addrs}\n)`;
     navigator.clipboard.writeText(sql);
     setCsvCopied(groupName);
     setTimeout(() => setCsvCopied(null), 2000);
@@ -454,7 +472,11 @@ export default function Home() {
     padding: '10px 22px', whiteSpace: 'nowrap',
   });
 
-  const ghostBtn = { background: 'transparent', border: `1px solid ${borderColor}`, borderRadius: 5, color: subColor, cursor: 'pointer', fontFamily: "'Space Mono',monospace", fontSize: 11, padding: '5px 12px' };
+  const ghostBtn = (color) => ({
+    background: 'transparent', border: `1px solid ${color}44`,
+    borderRadius: 5, color, cursor: 'pointer',
+    fontFamily: "'Space Mono',monospace", fontSize: 11, padding: '5px 12px',
+  });
 
   return (
     <>
@@ -464,7 +486,7 @@ export default function Home() {
         <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
       </Head>
 
-      <div style={{ background: bg, minHeight: '100vh', paddingBottom: 64, transition: 'background 0.2s' }}>
+      <div style={{ background: bg, minHeight: '100vh', paddingBottom: 64 }}>
         {/* Header */}
         <div style={{ borderBottom: `1px solid ${borderColor}`, padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: 820, margin: '0 auto' }}>
           <div>
@@ -478,7 +500,7 @@ export default function Home() {
           </div>
           <button onClick={() => setTheme(isDark ? 'light' : 'dark')}
             style={{ background: surface, border: `1px solid ${borderColor}`, borderRadius: 20, color: subColor, cursor: 'pointer', fontFamily: "'Space Mono',monospace", fontSize: 11, padding: '5px 14px' }}>
-            {isDark ? '◑ Dim' : '● Dark'}
+            ◑ Dim
           </button>
         </div>
 
@@ -499,7 +521,7 @@ export default function Home() {
               ))}
             </div>
 
-            {/* Single */}
+            {/* ── Single ── */}
             {tab === 'single' && (
               <div style={{ display: 'flex', gap: 8 }}>
                 <input value={singleAddr} onChange={e => setSingleAddr(e.target.value)}
@@ -511,15 +533,15 @@ export default function Home() {
               </div>
             )}
 
-            {/* Multi */}
+            {/* ── Multi ── */}
             {tab === 'multi' && (
               <div>
                 <textarea value={multiAddrs} onChange={e => setMultiAddrs(e.target.value)}
-                  placeholder={'Paste addresses — one per line or comma-separated\n0x...\n0x...\n0x...'}
+                  placeholder={'Paste addresses — one per line or comma-separated\n0x...\n0x...'}
                   rows={5} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.7 }} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
                   <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10 }}>
-                    {multiCount} valid address{multiCount !== 1 ? 'es' : ''} · max 50 per lookup
+                    {multiCount} valid address{multiCount !== 1 ? 'es' : ''} · max 50
                   </span>
                   <button onClick={() => doLookup(multiAddrs.split(/[\n,]+/).map(a => a.trim()).filter(a => a.startsWith('0x') && a.length === 42))}
                     disabled={loading} style={btnStyle(loading)}>
@@ -529,103 +551,105 @@ export default function Home() {
               </div>
             )}
 
-            {/* ── CSV TAB ── */}
+            {/* ── CSV ── */}
             {tab === 'csv' && (
               <div>
-                {/* Upload area — hidden once results are in */}
+                {/* Upload drop zone */}
                 {!csvResults && (
-                  <div>
-                    <div onClick={() => fileInputRef.current?.click()}
-                      style={{ border: `2px dashed ${borderColor}`, borderRadius: 8, cursor: 'pointer', padding: '36px 24px', textAlign: 'center' }}>
-                      <div style={{ color: '#F0C040', fontSize: 30, marginBottom: 8 }}>⬆</div>
-                      <div style={{ color: textColor, fontFamily: "'Syne',sans-serif", fontSize: 14, fontWeight: 700 }}>
-                        {csvName || 'Click to upload a CSV file'}
-                      </div>
-                      <div style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10, marginTop: 4 }}>
-                        Any CSV with 0x addresses — auto-detected · enriched with Arkham labels
-                      </div>
-                      <input ref={fileInputRef} type="file" accept=".csv,.txt" style={{ display: 'none' }}
-                        onChange={e => { const f = e.target.files[0]; if (f) { setCsvFile(f); setCsvName(f.name); } }} />
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{ border: `2px dashed ${borderColor}`, borderRadius: 8, cursor: 'pointer', padding: '36px 24px', textAlign: 'center' }}>
+                    <div style={{ color: '#F0C040', fontSize: 28, marginBottom: 8 }}>⬆</div>
+                    <div style={{ color: textColor, fontFamily: "'Syne',sans-serif", fontSize: 14, fontWeight: 700 }}>
+                      {csvName || 'Click to upload a CSV file'}
                     </div>
-                    {csvFile && (
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-                        <button onClick={handleCSV} disabled={loading} style={btnStyle(loading)}>
-                          {loading ? 'Enriching…' : 'Enrich CSV'}
-                        </button>
-                      </div>
-                    )}
+                    <div style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10, marginTop: 4 }}>
+                      Any CSV containing 0x addresses — auto-detected
+                    </div>
+                    <input ref={fileInputRef} type="file" accept=".csv,.txt" style={{ display: 'none' }}
+                      onChange={e => handleCSVFile(e.target.files[0])} />
                   </div>
                 )}
 
-                {/* ── Results breakdown ── */}
-                {csvResults && (
+                {/* Address count + Look Up button */}
+                {csvAddresses.length > 0 && !csvResults && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                    <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 11 }}>
+                      {csvAddresses.length} valid address{csvAddresses.length !== 1 ? 'es' : ''} detected in <span style={{ color: textColor }}>{csvName}</span>
+                    </span>
+                    <button onClick={runCSVLookup} disabled={loading} style={btnStyle(loading)}>
+                      {loading ? 'Looking up…' : 'Look Up All'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Results */}
+                {csvResults && !loading && (
                   <div>
-                    {/* Header row: filename + clear button */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                      <div>
-                        <span style={{ color: '#F0C040', fontFamily: "'Syne',sans-serif", fontSize: 13, fontWeight: 700 }}>{csvName}</span>
-                        <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10, marginLeft: 10 }}>{csvEntries.length} addresses screened</span>
-                      </div>
-                      <button onClick={clearCSV} style={{ ...ghostBtn, color: '#FF8080', borderColor: 'rgba(255,80,80,0.3)' }}>
-                        ✕ Clear
-                      </button>
+                    {/* Top bar */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10 }}>
+                        {csvEntries.length} addresses screened
+                      </span>
+                      <button onClick={clearCSV} style={{ ...ghostBtn('#FF8080'), fontSize: 11 }}>✕ Clear</button>
                     </div>
 
                     {/* Stats bar */}
-                    <div style={{ marginBottom: 16 }}>
+                    <div style={{ marginBottom: 14 }}>
                       <div style={{ height: 8, borderRadius: 4, overflow: 'hidden', display: 'flex', marginBottom: 8 }}>
                         {Object.entries(csvGroups).filter(([k, v]) => k !== 'All' && v.length > 0).map(([type, group]) => (
                           <div key={type} style={{ flex: group.length, background: TYPE_COLORS[type] }} title={`${type}: ${group.length}`} />
                         ))}
                       </div>
-                      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                         {Object.entries(csvGroups).filter(([k, v]) => k !== 'All' && v.length > 0).map(([type, group]) => (
                           <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                             <div style={{ width: 7, height: 7, borderRadius: '50%', background: TYPE_COLORS[type] }} />
                             <span style={{ color: TYPE_COLORS[type], fontFamily: "'Space Mono',monospace", fontSize: 10 }}>{type}</span>
-                            <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10 }}>{group.length} ({Math.round(group.length / csvEntries.length * 100)}%)</span>
+                            <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10 }}>
+                              {group.length} ({Math.round(group.length / csvEntries.length * 100)}%)
+                            </span>
                           </div>
                         ))}
                       </div>
                     </div>
 
-                    {/* Group filter tabs */}
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                    {/* Group tabs */}
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
                       {Object.entries(csvGroups).map(([type, group]) => {
                         if (type !== 'All' && group.length === 0) return null;
                         const active = csvGroupTab === type;
                         const color = type === 'All' ? '#F0C040' : TYPE_COLORS[type];
                         return (
                           <button key={type} onClick={() => setCsvGroupTab(type)} style={{
-                            background: active ? `${color}22` : 'transparent',
+                            background: active ? `${color}20` : 'transparent',
                             border: `1px solid ${active ? color : borderColor}`,
                             borderRadius: 5, color: active ? color : subColor,
                             cursor: 'pointer', fontFamily: "'Space Mono',monospace",
-                            fontSize: 11, fontWeight: active ? 700 : 400,
-                            padding: '4px 12px', transition: 'all 0.15s',
+                            fontSize: 11, fontWeight: active ? 700 : 400, padding: '4px 12px',
                           }}>
-                            {type} <span style={{ opacity: 0.7 }}>({group.length})</span>
+                            {type} ({group.length})
                           </button>
                         );
                       })}
                     </div>
 
-                    {/* Action buttons for active group */}
+                    {/* Action buttons */}
                     {activeGroup.length > 0 && (
-                      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                        <button onClick={() => exportGroupCSV(csvGroupTab)} style={{ ...ghostBtn, color: '#F0C040', borderColor: 'rgba(240,192,64,0.4)' }}>
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                        <button onClick={() => exportGroupCSV(csvGroupTab)} style={ghostBtn('#F0C040')}>
                           ↓ Download {csvGroupTab} CSV
                         </button>
-                        <button onClick={() => copyGroupSQL(csvGroupTab)} style={{ ...ghostBtn, color: csvCopied === csvGroupTab ? '#50C878' : '#4DA6FF', borderColor: csvCopied === csvGroupTab ? 'rgba(80,200,120,0.4)' : 'rgba(77,166,255,0.4)' }}>
+                        <button onClick={() => copyGroupSQL(csvGroupTab)} style={ghostBtn(csvCopied === csvGroupTab ? '#50C878' : '#4DA6FF')}>
                           {csvCopied === csvGroupTab ? '✓ Copied!' : '{ } Copy as SQL'}
                         </button>
                       </div>
                     )}
 
-                    {/* Address table for active group */}
-                    <div style={{ borderRadius: 8, border: `1px solid ${borderColor}`, overflow: 'hidden', maxHeight: 380, overflowY: 'auto' }}>
+                    {/* Table */}
+                    <div style={{ borderRadius: 8, border: `1px solid ${borderColor}`, overflow: 'hidden', maxHeight: 360, overflowY: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'Space Mono',monospace", fontSize: 11 }}>
-                        <thead style={{ position: 'sticky', top: 0, background: isDark ? '#0D1220' : '#161C2E' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#0D1220' }}>
                           <tr>
                             {['#', 'Address', 'Label', 'Type', 'Note'].map(h => (
                               <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: subColor, fontWeight: 400, fontSize: 10, letterSpacing: 1, borderBottom: `1px solid ${borderColor}` }}>{h}</th>
@@ -640,9 +664,7 @@ export default function Home() {
                             return (
                               <tr key={addr} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)' }}>
                                 <td style={{ padding: '7px 10px', color: subColor, borderBottom: `1px solid ${borderColor}`, fontSize: 10 }}>{i + 1}</td>
-                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}` }}>
-                                  <span style={{ color: '#A0B0C8' }}>{shortAddr(addr)}</span>
-                                </td>
+                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, color: '#A0B0C8' }}>{shortAddr(addr)}</td>
                                 <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, color: label === '—' ? subColor : textColor, fontWeight: label !== '—' ? 700 : 400 }}>{label}</td>
                                 <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}` }}>
                                   <span style={{ background: TYPE_BG[type], color: TYPE_COLORS[type], border: `1px solid ${TYPE_COLORS[type]}44`, borderRadius: 4, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>{type}</span>
@@ -659,7 +681,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* Relationship Map */}
+            {/* ── Relationship Map ── */}
             {tab === 'map' && <RelationshipMap isDark={isDark} />}
 
             {/* Error */}
@@ -669,7 +691,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* Stats + Table for Single / Multi tabs */}
+            {/* Single/Multi results */}
             {(tab === 'single' || tab === 'multi') && (
               <>
                 <StatsBar results={results} isDark={isDark} />
