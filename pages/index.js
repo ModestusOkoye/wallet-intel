@@ -1,577 +1,554 @@
-import { useState, useRef, useEffect } from "react";
-import Head from "next/head";
+import { useState, useRef } from 'react';
+import Head from 'next/head';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function isValidAddress(addr) {
-  return /^0x[0-9a-fA-F]{40}$/.test(addr.trim());
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function classifyEntity(entry) {
+  if (!entry) return 'Unknown';
+  const type = (entry.arkhamEntity?.type || '').toLowerCase();
+  const name = (entry.arkhamEntity?.name || entry.arkhamLabel?.name || '').toLowerCase();
+  if (type.includes('cex') || type.includes('exchange') ||
+      ['binance','coinbase','kraken','okx','bybit','gate','kucoin','huobi','upbit','bitfinex','gemini','crypto.com'].some(x => name.includes(x)))
+    return 'CEX';
+  if (type.includes('fund') || type.includes('vc') ||
+      ['fund','capital','ventures','invest','partners'].some(x => name.includes(x)))
+    return 'Fund';
+  if (type.includes('defi') || type.includes('protocol') || type.includes('contract'))
+    return 'DeFi';
+  if (entry.arkhamEntity?.name || entry.arkhamLabel?.name) return 'Whale';
+  return 'Unknown';
 }
 
-function truncate(addr) {
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+function getLabel(entry) {
+  if (!entry) return '—';
+  return entry.arkhamEntity?.name || entry.arkhamLabel?.name || '—';
 }
 
-function parseMultiInput(text) {
-  const tokens = text.split(/[\n,\s]+/);
-  const seen = new Set();
-  const valid = [];
-  for (const token of tokens) {
-    const val = token.trim().toLowerCase();
-    if (isValidAddress(val) && !seen.has(val)) { seen.add(val); valid.push(val); }
-  }
-  return valid;
+function getNote(entry) {
+  if (!entry) return '';
+  return entry.arkhamLabel?.name || entry.arkhamEntity?.note || '';
 }
 
-function parseAddressesFromCSV(text) {
-  const lines = text.split(/\r?\n/);
-  const addresses = new Set();
-  for (const line of lines) {
-    const cols = line.split(",");
-    for (const col of cols) {
-      const val = col.trim().replace(/^"(.*)"$/, "$1");
-      if (isValidAddress(val)) addresses.add(val.toLowerCase());
-    }
-  }
-  return [...addresses];
+function shortAddr(addr) {
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
-function downloadCSV(rows, filename) {
-  const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
+function fmtUSD(val) {
+  if (val >= 1e9) return `$${(val / 1e9).toFixed(2)}B`;
+  if (val >= 1e6) return `$${(val / 1e6).toFixed(1)}M`;
+  if (val >= 1e3) return `$${(val / 1e3).toFixed(0)}K`;
+  return `$${val.toFixed(0)}`;
 }
 
-function getEntityType(r) {
-  // Manual override takes priority
-  if (r._manualType) return r._manualType;
-  const t = (r.entityType || r.labelType || "").toLowerCase();
-  if (t === "cex") return "CEX";
-  if (t === "dex") return "DEX";
-  if (["fund", "hedge fund", "vc"].some(x => t.includes(x))) return "Fund";
-  if (r.entity || r.label) return "Other";
-  return "Unlabelled";
-}
+const TYPE_COLORS = {
+  CEX:     '#4DA6FF',
+  Fund:    '#50C878',
+  DeFi:    '#FF9500',
+  Whale:   '#B19CD9',
+  Unknown: '#5A6A8A',
+};
 
-// ─── Component ────────────────────────────────────────────────────────────────
+const TYPE_BG = {
+  CEX:     'rgba(77,166,255,0.15)',
+  Fund:    'rgba(80,200,120,0.15)',
+  DeFi:    'rgba(255,149,0,0.15)',
+  Whale:   'rgba(177,156,217,0.15)',
+  Unknown: 'rgba(90,106,138,0.12)',
+};
 
-export default function Home() {
-  const [darkMode, setDarkMode] = useState(true);
-  const [mode, setMode] = useState("single");
-  const [singleInput, setSingleInput] = useState("");
-  const [multiInput, setMultiInput] = useState("");
-  const [csvAddresses, setCsvAddresses] = useState([]);
-  const [csvFileName, setCsvFileName] = useState("");
-  const [results, setResults] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [copied, setCopied] = useState("");
-  const [copiedGroup, setCopiedGroup] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeFilters, setActiveFilters] = useState(new Set(["CEX","DEX","Fund","Other","Unlabelled"]));
-  const [history, setHistory] = useState([]);
-  const [selected, setSelected] = useState(new Set()); // selected addresses
-  const fileInputRef = useRef(null);
-
-  const c = darkMode ? dark : light;
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("wi_history");
-      if (saved) setHistory(JSON.parse(saved));
-    } catch {}
-  }, []);
-
-  function saveHistory(addresses, resultCount) {
-    const entry = { id: Date.now(), date: new Date().toLocaleDateString(), addresses: addresses.slice(0, 3).map(truncate), total: addresses.length, labelled: resultCount };
-    const updated = [entry, ...history].slice(0, 8);
-    setHistory(updated);
-    try { localStorage.setItem("wi_history", JSON.stringify(updated)); } catch {}
-  }
-
-  function handleCSVUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    setCsvFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const addrs = parseAddressesFromCSV(ev.target.result);
-      if (addrs.length === 0) { setError("No valid Ethereum addresses found."); setCsvAddresses([]); }
-      else if (addrs.length > 50) { setError(`Found ${addrs.length} — only first 50 used.`); setCsvAddresses(addrs.slice(0, 50)); }
-      else { setError(""); setCsvAddresses(addrs); }
-    };
-    reader.readAsText(file);
-  }
-
-  async function handleLookup(overrideAddresses) {
-    setError(""); setResults(null); setSearchQuery(""); setSelected(new Set());
-    setActiveFilters(new Set(["CEX","DEX","Fund","Other","Unlabelled"]));
-    let addresses = overrideAddresses || [];
-
-    if (!overrideAddresses) {
-      if (mode === "single") {
-        const val = singleInput.trim().toLowerCase();
-        if (!isValidAddress(val)) { setError("Enter a valid Ethereum address."); return; }
-        addresses = [val];
-      } else if (mode === "multi") {
-        const parsed = parseMultiInput(multiInput);
-        if (parsed.length === 0) { setError("No valid addresses found."); return; }
-        if (parsed.length > 50) setError(`Found ${parsed.length} — only first 50 used.`);
-        addresses = parsed.slice(0, 50);
-      } else if (mode === "csv") {
-        if (csvAddresses.length === 0) { setError("Upload a CSV first."); return; }
-        addresses = csvAddresses;
-      }
-    }
-
-    setLoading(true);
-    try {
-      const res = await fetch("/api/lookup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ addresses }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error ?? "Something went wrong."); return; }
-      const r = data.results ?? [];
-      setResults(r);
-      saveHistory(addresses, r.filter(x => x.entity || x.label).length);
-    } catch { setError("Network error."); }
-    finally { setLoading(false); }
-  }
-
-  // ── Manual reclassify ────────────────────────────────────────────────────
-
-  function reclassifySelected(targetType) {
-    setResults(prev => prev.map(r =>
-      selected.has(r.address) ? { ...r, _manualType: targetType } : r
-    ));
-    setSelected(new Set());
-  }
-
-  function toggleSelect(addr) {
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(addr) ? next.delete(addr) : next.add(addr);
-      return next;
-    });
-  }
-
-  function toggleSelectAll(rows) {
-    const allSelected = rows.every(r => selected.has(r.address));
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (allSelected) rows.forEach(r => next.delete(r.address));
-      else rows.forEach(r => next.add(r.address));
-      return next;
-    });
-  }
-
-  function toggleFilter(type) {
-    setActiveFilters(prev => {
-      const next = new Set(prev);
-      next.has(type) ? next.delete(type) : next.add(type);
-      return next;
-    });
-  }
-
-  function copyText(text, key) {
-    navigator.clipboard.writeText(text);
-    setCopied(key); setTimeout(() => setCopied(""), 1500);
-  }
-
-  function copyGroupAddresses(rows, key) {
-    navigator.clipboard.writeText(rows.map(r => r.address).join("\n"));
-    setCopiedGroup(key); setTimeout(() => setCopiedGroup(""), 2000);
-  }
-
-  function copyAsSQL(rows) {
-    const lines = rows.map(r => {
-      const comment = [r.entity, r.label].filter(Boolean).join(": ");
-      return `  '${r.address}'${comment ? ` -- ${comment}` : ""}`;
-    }).join(",\n");
-    navigator.clipboard.writeText(lines);
-    setCopiedGroup("sql"); setTimeout(() => setCopiedGroup(""), 2000);
-  }
-
-  function exportRows(rows, filename) {
-    const hasLabels = rows.some(r => r.entity || r.label);
-    const headers = hasLabels ? ["Address","Entity","Entity Type","Label","Label Type"] : ["Address"];
-    const data = rows.map(r => hasLabels
-      ? [r.address, r.entity ?? "—", r.entityType ?? "—", r.label ?? "—", r.labelType ?? "—"]
-      : [r.address]);
-    downloadCSV([headers, ...data], filename);
-  }
-
-  // ── Derived data ──────────────────────────────────────────────────────────
-
-  const allResults = results ?? [];
-  const allTypes = [...new Set(allResults.map(getEntityType))];
-
-  const filtered = allResults.filter(r => {
-    const type = getEntityType(r);
-    if (!activeFilters.has(type)) return false;
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (r.entity||"").toLowerCase().includes(q) || (r.label||"").toLowerCase().includes(q) || r.address.toLowerCase().includes(q);
-  });
-
-  const breakdown = {};
-  for (const r of allResults) { const t = getEntityType(r); breakdown[t] = (breakdown[t] || 0) + 1; }
-
-  // Group filtered results by type
-  const groups = {};
-  for (const r of filtered) {
-    const t = getEntityType(r);
-    if (!groups[t]) groups[t] = [];
-    groups[t].push(r);
-  }
-
-  const labelledTypes = ["CEX","DEX","Fund","Other"].filter(t => groups[t]?.length > 0);
-  const hasUnlabelled = (groups["Unlabelled"]?.length || 0) > 0;
-  const parsedMultiCount = parseMultiInput(multiInput).length;
-
-  const typeColors = { CEX: "#F0C040", DEX: "#3DD6C8", Fund: "#A78BFA", Other: "#FB923C", Unlabelled: "#5A6A8A" };
-
+// ─── Stats bar ────────────────────────────────────────────────────────────────
+function StatsBar({ results, isDark }) {
+  const entries = Object.values(results);
+  if (!entries.length) return null;
+  const counts = { CEX: 0, Fund: 0, DeFi: 0, Whale: 0, Unknown: 0 };
+  entries.forEach(e => { counts[classifyEntity(e)]++; });
+  const total = entries.length;
   return (
-    <>
-      <Head>
-        <title>Wallet Intel — Arkham Label Checker</title>
-        <meta name="description" content="On-chain wallet label checker powered by Arkham" />
-      </Head>
-
-      <div style={{ ...s.page, background: c.bg, color: c.text, minHeight: "100vh" }}>
-
-        {/* Header */}
-        <header style={s.header}>
-          <div style={s.logoRow}>
-            <span style={s.logoDot} />
-            <span style={{ ...s.logoText, color: c.accent }}> WALLET INTEL</span>
-            <button onClick={() => setDarkMode(d => !d)} style={{ ...s.ghostBtn, marginLeft: "auto", background: c.card, border: `1px solid ${c.border}`, color: c.muted }}>
-              {darkMode ? "☀ Light" : "☾ Dark"}
-            </button>
-          </div>
-          <p style={{ ...s.tagline, color: c.muted }}>
-            On-chain label intelligence · Powered by{" "}
-            <a href="https://platform.arkhamintelligence.com" target="_blank" rel="noreferrer" style={{ color: c.accent }}>Arkham</a>
-          </p>
-        </header>
-
-        {/* History */}
-        {history.length > 0 && (
-          <div style={{ ...s.historyBar, background: c.card, border: `1px solid ${c.border}` }}>
-            <span style={{ ...s.hint, color: c.muted, marginBottom: 0 }}>Recent:</span>
-            {history.map(h => (
-              <button key={h.id} style={{ ...s.ghostBtn, background: c.bg, border: `1px solid ${c.border}`, color: c.muted, fontSize: 11 }}
-                title={`${h.total} addresses · ${h.labelled} labelled · ${h.date}`}>
-                {h.addresses.join(", ")}{h.total > 3 ? ` +${h.total - 3}` : ""}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div style={s.tabs}>
-          {[{ key:"single",label:"Single Address"},{ key:"multi",label:"Multiple Addresses"},{ key:"csv",label:"Upload CSV"}].map(tab => (
-            <button key={tab.key}
-              style={{ ...s.tab, background: mode===tab.key ? c.card:"transparent", borderColor: mode===tab.key ? c.accent:c.border, color: mode===tab.key ? c.accent:c.muted }}
-              onClick={() => { setMode(tab.key); setError(""); setResults(null); setSelected(new Set()); }}>
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Input card */}
-        <div style={{ ...s.card, background: c.card, border: `1px solid ${c.border}` }}>
-          {mode === "single" && (
-            <div style={s.inputRow}>
-              <input style={{ ...s.input, background: c.bg, border: `1px solid ${c.border}`, color: c.text }}
-                type="text" placeholder="0x..."
-                value={singleInput}
-                onChange={e => { setSingleInput(e.target.value); if (!e.target.value) setResults(null); }}
-                onKeyDown={e => e.key === "Enter" && handleLookup()}
-                spellCheck={false} />
-              <button style={{ ...s.btn, background: c.accent }} onClick={() => handleLookup()} disabled={loading}>
-                {loading ? "Checking…" : "Look Up"}
-              </button>
-            </div>
-          )}
-
-          {mode === "multi" && (
-            <>
-              <p style={{ ...s.hint, color: c.muted }}>Paste up to 50 addresses — one per line, or separated by commas or spaces.</p>
-              <textarea style={{ ...s.textarea, background: c.bg, border: `1px solid ${c.border}`, color: c.text }}
-                placeholder={"0x28c6c06298d514db089934071355e5743bf21d60\n0x3f5CE5FBFe3E9af3971dD833D26bA9b5C936f0bE\n..."}
-                value={multiInput}
-                onChange={e => { setMultiInput(e.target.value); if (!e.target.value) setResults(null); }}
-                spellCheck={false} rows={8} />
-              <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ ...s.hint, color: c.muted, marginBottom: 0 }}>
-                  {parsedMultiCount > 0 ? `${parsedMultiCount} valid address${parsedMultiCount>1?"es":""} detected${parsedMultiCount>50?" — first 50 will be used":""}` : "Paste addresses above"}
-                </span>
-                <button style={{ ...s.btn, background: c.accent }} onClick={() => handleLookup()} disabled={loading || parsedMultiCount === 0}>
-                  {loading ? "Checking…" : `Look Up${parsedMultiCount > 0 ? ` ${Math.min(parsedMultiCount,50)}` : ""}`}
-                </button>
-              </div>
-            </>
-          )}
-
-          {mode === "csv" && (
-            <>
-              <div style={{ ...s.dropzone, border: `2px dashed ${c.border}` }} onClick={() => fileInputRef.current?.click()}
-                onDragOver={e => e.preventDefault()}
-                onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleCSVUpload({ target: { files: [f] } }); }}>
-                <input ref={fileInputRef} type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={handleCSVUpload} />
-                <span style={{ color: c.accent, fontSize: 28 }}>⬆</span>
-                <span style={{ color: c.text, fontFamily: "'Syne',sans-serif", fontWeight: 600, fontSize: 14 }}>
-                  {csvFileName ? `${csvFileName} · ${csvAddresses.length} addresses found` : "Click or drag a CSV file here"}
-                </span>
-                <span style={{ ...s.hint, color: c.muted, marginBottom: 0 }}>Any column with 0x addresses will be detected automatically</span>
-              </div>
-              {csvAddresses.length > 0 && (
-                <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <button style={{ ...s.ghostBtn, border: "1px solid #FF5F57", color: "#FF5F57" }}
-                    onClick={() => { setCsvAddresses([]); setCsvFileName(""); setResults(null); setError(""); setSelected(new Set()); if (fileInputRef.current) fileInputRef.current.value=""; }}>
-                    ✕ Clear CSV
-                  </button>
-                  <button style={{ ...s.btn, background: c.accent }} onClick={() => handleLookup()} disabled={loading}>
-                    {loading ? "Checking…" : `Look Up ${csvAddresses.length} Addresses`}
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-
-          {error && <p style={s.error}>{error}</p>}
-        </div>
-
-        {/* Results */}
-        {results && (
-          <div>
-
-            {/* Summary + search */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-              <div>
-                <span style={{ color: c.accent, fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15 }}>{allResults.length}</span>
-                <span style={{ color: c.muted, fontFamily: "'Space Mono',monospace", fontSize: 12 }}> queried · </span>
-                <span style={{ color: "#3DD6C8", fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15 }}>{allResults.filter(r=>r.entity||r.label).length}</span>
-                <span style={{ color: c.muted, fontFamily: "'Space Mono',monospace", fontSize: 12 }}> labelled · </span>
-                <span style={{ color: c.muted, fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15 }}>{allResults.filter(r=>!r.entity&&!r.label).length}</span>
-                <span style={{ color: c.muted, fontFamily: "'Space Mono',monospace", fontSize: 12 }}> unlabelled</span>
-              </div>
-              <input
-                style={{ ...s.input, background: c.card, border: `1px solid ${c.border}`, color: c.text, maxWidth: 240, marginLeft: "auto" }}
-                placeholder="🔍 Search entity or label..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                spellCheck={false} />
-            </div>
-
-            {/* Filter chips */}
-            {allTypes.length > 1 && (
-              <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
-                <span style={{ color: c.muted, fontFamily: "'Space Mono',monospace", fontSize: 11 }}>Filter:</span>
-                {allTypes.map(type => {
-                  const active = activeFilters.has(type);
-                  const col = typeColors[type] || "#5A6A8A";
-                  return (
-                    <button key={type} onClick={() => toggleFilter(type)}
-                      style={{ background: active ? `${col}22`:"transparent", border: `1px solid ${active ? col : c.border}`, borderRadius: 20, color: active ? col : c.muted, cursor: "pointer", fontFamily: "'Syne',sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 14px" }}>
-                      {type} {breakdown[type] ? `(${breakdown[type]})` : ""}
-                    </button>
-                  );
-                })}
-                <button onClick={() => setActiveFilters(new Set(allTypes))}
-                  style={{ background: "transparent", border: "none", color: c.muted, cursor: "pointer", fontFamily: "'Space Mono',monospace", fontSize: 11 }}>Reset</button>
-              </div>
-            )}
-
-            {/* ── Selection action bar — fixed to bottom of screen ── */}
-            {selected.size > 0 && (
-              <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 999, background: "#0F1526", border: "1px solid #F0C040", borderRadius: 10, padding: "12px 20px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", maxWidth: 700, width: "calc(100% - 48px)" }}>
-                <span style={{ color: "#F0C040", fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13 }}>
-                  {selected.size} selected
-                </span>
-                <span style={{ color: "#5A6A8A", fontFamily: "'Space Mono',monospace", fontSize: 11 }}>Move to →</span>
-                {["CEX","DEX","Fund","Other"].map(type => (
-                  <button key={type} onClick={() => reclassifySelected(type)}
-                    style={{ background: `${typeColors[type]}22`, border: `1px solid ${typeColors[type]}`, borderRadius: 4, color: typeColors[type], cursor: "pointer", fontFamily: "'Syne',sans-serif", fontSize: 12, fontWeight: 700, padding: "5px 14px" }}>
-                    {type}
-                  </button>
-                ))}
-                <button onClick={() => setSelected(new Set())}
-                  style={{ background: "transparent", border: "none", color: "#5A6A8A", cursor: "pointer", fontFamily: "'Space Mono',monospace", fontSize: 11, marginLeft: "auto" }}>
-                  ✕ Deselect all
-                </button>
-              </div>
-            )}
-
-            {/* Labelled groups */}
-            {labelledTypes.map(type => {
-              const rows = groups[type] || [];
-              const col = typeColors[type] || "#5A6A8A";
-              const allSel = rows.length > 0 && rows.every(r => selected.has(r.address));
-              return (
-                <div key={type} style={{ marginBottom: 24 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <input type="checkbox" checked={allSel} onChange={() => toggleSelectAll(rows)}
-                        style={{ accentColor: col, cursor: "pointer", width: 15, height: 15 }} />
-                      <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: col }} />
-                      <span style={{ color: col, fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13 }}>{type} ({rows.length})</span>
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button style={{ ...s.ghostBtn, border: `1px solid ${c.border}`, color: c.muted }} onClick={() => copyGroupAddresses(rows, type)}>
-                        {copiedGroup === type ? "✓ Copied" : "⎘ Copy Addresses"}
-                      </button>
-                      <button style={{ ...s.ghostBtn, border: `1px solid ${c.border}`, color: c.muted }} onClick={() => exportRows(rows, `${type.toLowerCase()}.csv`)}>
-                        ↓ Export CSV
-                      </button>
-                      <button style={{ ...s.ghostBtn, border: `1px solid #F0C040`, color: "#F0C040" }} onClick={() => copyAsSQL(rows)}
-                        title="Copy as SQL — paste into your Dune CTE">
-                        {copiedGroup === "sql" ? "✓ Copied SQL" : "{ } Copy as SQL"}
-                      </button>
-                    </div>
-                  </div>
-                  <ResultTable rows={rows} selected={selected} onSelect={toggleSelect} copied={copied} onCopy={addr => copyText(addr, addr)} c={c} accentCol={col} />
-                </div>
-              );
-            })}
-
-            {/* Unlabelled group */}
-            {hasUnlabelled && (
-              <div style={{ marginBottom: 24 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <input type="checkbox"
-                      checked={(groups["Unlabelled"]||[]).every(r => selected.has(r.address))}
-                      onChange={() => toggleSelectAll(groups["Unlabelled"]||[])}
-                      style={{ accentColor: "#5A6A8A", cursor: "pointer", width: 15, height: 15 }} />
-                    <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: c.muted }} />
-                    <span style={{ color: c.muted, fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13 }}>Unlabelled ({groups["Unlabelled"]?.length || 0})</span>
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button style={{ ...s.ghostBtn, border: `1px solid ${c.border}`, color: c.muted }} onClick={() => copyGroupAddresses(groups["Unlabelled"]||[], "unlab")}>
-                      {copiedGroup === "unlab" ? "✓ Copied" : "⎘ Copy Addresses"}
-                    </button>
-                    <button style={{ ...s.ghostBtn, border: `1px solid ${c.border}`, color: c.muted }} onClick={() => exportRows(groups["Unlabelled"]||[], "unlabelled.csv")}>
-                      ↓ Export CSV
-                    </button>
-                  </div>
-                </div>
-                <div style={{ ...s.tableWrap, background: c.card, border: `1px solid ${c.border}` }}>
-                  <table style={s.table}>
-                    <thead><tr>
-                      <th style={{ ...s.th, color: c.muted, borderBottom: `1px solid ${c.border}`, width: 32 }}></th>
-                      <th style={{ ...s.th, color: c.muted, borderBottom: `1px solid ${c.border}` }}>Address</th>
-                    </tr></thead>
-                    <tbody>
-                      {(groups["Unlabelled"]||[]).map(r => (
-                        <tr key={r.address} style={{ borderBottom: `1px solid ${c.bg}`, background: selected.has(r.address) ? "rgba(240,192,64,0.06)" : "transparent" }}>
-                          <td style={{ ...s.td, width: 32 }}>
-                            <input type="checkbox" checked={selected.has(r.address)} onChange={() => toggleSelect(r.address)}
-                              style={{ accentColor: "#5A6A8A", cursor: "pointer" }} />
-                          </td>
-                          <td style={{ ...s.td, color: "#3DD6C8" }}>
-                            {truncate(r.address)}
-                            <button style={s.copyBtn} onClick={() => copyText(r.address, r.address)}>{copied === r.address ? " ✓" : " ⎘"}</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Export all */}
-            <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
-              <button style={{ ...s.ghostBtn, border: `1px solid ${c.border}`, color: c.muted }} onClick={() => exportRows(allResults, "wallet-intel-all.csv")}>
-                ↓ Export All CSV
-              </button>
-            </div>
-          </div>
-        )}
-
-        <footer style={{ ...s.footer, borderTop: `1px solid ${c.border}`, color: c.muted }}>
-          Built by{" "}
-          <a href="https://dune.com/modestus_eth" target="_blank" rel="noreferrer" style={{ color: c.accent }}>@modestus_eth</a>
-          {" "}· Data from Arkham Intelligence
-        </footer>
+    <div style={{ margin: '16px 0 0', borderRadius: 8, background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, padding: '14px 16px' }}>
+      <div style={{ fontFamily: "'Space Mono',monospace", fontSize: 10, color: '#5A6A8A', letterSpacing: 1, marginBottom: 10 }}>
+        ENTITY BREAKDOWN — {total} WALLET{total !== 1 ? 'S' : ''}
       </div>
-    </>
-  );
-}
-
-// ─── Result Table ─────────────────────────────────────────────────────────────
-
-function ResultTable({ rows, selected, onSelect, copied, onCopy, c, accentCol }) {
-  return (
-    <div style={{ ...s.tableWrap, background: c.card, border: `1px solid ${c.border}` }}>
-      <table style={s.table}>
-        <thead>
-          <tr>
-            <th style={{ ...s.th, color: c.muted, borderBottom: `1px solid ${c.border}`, width: 32 }}></th>
-            {["Address","Entity","Entity Type","Label","Label Type"].map(h => (
-              <th key={h} style={{ ...s.th, color: c.muted, borderBottom: `1px solid ${c.border}` }}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(r => (
-            <tr key={r.address} style={{ borderBottom: `1px solid ${c.bg}`, background: selected.has(r.address) ? "rgba(240,192,64,0.06)" : "transparent" }}>
-              <td style={{ ...s.td, width: 32 }}>
-                <input type="checkbox" checked={selected.has(r.address)} onChange={() => onSelect(r.address)}
-                  style={{ accentColor: accentCol, cursor: "pointer" }} />
-              </td>
-              <td style={{ ...s.td, color: "#3DD6C8" }}>
-                {truncate(r.address)}
-                <button style={s.copyBtn} onClick={() => onCopy(r.address)}>{copied === r.address ? " ✓" : " ⎘"}</button>
-              </td>
-              <td style={s.td}>{r.entity ? <span style={{ color: "#F0C040", fontWeight: 700 }}>{r.entity}</span> : <span style={{ color: c.muted }}>—</span>}</td>
-              <td style={s.td}>{r.entityType ? <span style={{ background: "rgba(240,192,64,0.1)", borderRadius: 3, color: "#F0C040", fontSize: 11, padding: "2px 7px" }}>{r.entityType}</span> : <span style={{ color: c.muted }}>—</span>}</td>
-              <td style={s.td}>{r.label ? <span style={{ color: c.text }}>{r.label}</span> : <span style={{ color: c.muted }}>—</span>}</td>
-              <td style={s.td}>{r.labelType ? <span style={{ background: "rgba(240,192,64,0.1)", borderRadius: 3, color: "#F0C040", fontSize: 11, padding: "2px 7px" }}>{r.labelType}</span> : <span style={{ color: c.muted }}>—</span>}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div style={{ height: 8, borderRadius: 4, overflow: 'hidden', display: 'flex', marginBottom: 10 }}>
+        {Object.entries(counts).filter(([, v]) => v > 0).map(([type, count]) => (
+          <div key={type} style={{ flex: count, background: TYPE_COLORS[type] }} title={`${type}: ${count}`} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        {Object.entries(counts).filter(([, v]) => v > 0).map(([type, count]) => (
+          <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: TYPE_COLORS[type] }} />
+            <span style={{ color: TYPE_COLORS[type], fontFamily: "'Space Mono',monospace", fontSize: 10 }}>{type}</span>
+            <span style={{ color: '#5A6A8A', fontFamily: "'Space Mono',monospace", fontSize: 10 }}>{count} ({Math.round(count / total * 100)}%)</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-// ─── Theme ────────────────────────────────────────────────────────────────────
+// ─── Results table ────────────────────────────────────────────────────────────
+function ResultsTable({ results, isDark }) {
+  const [copied, setCopied] = useState(null);
+  const entries = Object.entries(results);
+  if (!entries.length) return null;
 
-const dark  = { bg: "#080C18", card: "#0F1526", border: "#1E2A45", text: "#D8E0F0", muted: "#5A6A8A", accent: "#F0C040" };
-const light = { bg: "#F4F6FA", card: "#FFFFFF",  border: "#DDE3EF", text: "#1A2035", muted: "#8492A6", accent: "#C49A00" };
+  const border = isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.07)';
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+  const copyAddr = (addr) => {
+    navigator.clipboard.writeText(addr);
+    setCopied(addr);
+    setTimeout(() => setCopied(null), 1500);
+  };
 
-const s = {
-  page:      { maxWidth: 960, margin: "0 auto", padding: "48px 24px 80px", transition: "background 0.2s" },
-  header:    { marginBottom: 32 },
-  logoRow:   { display: "flex", alignItems: "center", gap: 10, marginBottom: 8 },
-  logoDot:   { display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#F0C040", boxShadow: "0 0 12px #F0C040" },
-  logoText:  { fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 22, letterSpacing: "0.18em" },
-  tagline:   { fontFamily: "'Space Mono',monospace", fontSize: 12, letterSpacing: "0.04em" },
-  ghostBtn:  { borderRadius: 4, cursor: "pointer", fontFamily: "'Syne',sans-serif", fontSize: 12, fontWeight: 600, padding: "6px 12px", background: "transparent" },
-  historyBar:{ borderRadius: 6, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 20, padding: "10px 14px" },
-  tabs:      { display: "flex", gap: 4, marginBottom: 16 },
-  tab:       { borderRadius: 4, cursor: "pointer", fontFamily: "'Syne',sans-serif", fontSize: 13, fontWeight: 600, padding: "8px 18px", transition: "all 0.15s", border: "1px solid" },
-  card:      { borderRadius: 8, padding: 24, marginBottom: 32 },
-  inputRow:  { display: "flex", gap: 10 },
-  input:     { borderRadius: 4, flex: 1, fontFamily: "'Space Mono',monospace", fontSize: 13, outline: "none", padding: "10px 14px", border: "1px solid" },
-  textarea:  { borderRadius: 4, fontFamily: "'Space Mono',monospace", fontSize: 12, outline: "none", padding: "12px 14px", resize: "vertical", width: "100%", boxSizing: "border-box", lineHeight: 1.7, border: "1px solid" },
-  btn:       { border: "none", borderRadius: 4, color: "#080C18", cursor: "pointer", fontFamily: "'Syne',sans-serif", fontSize: 13, fontWeight: 700, letterSpacing: "0.05em", padding: "10px 22px", whiteSpace: "nowrap" },
-  dropzone:  { alignItems: "center", borderRadius: 6, cursor: "pointer", display: "flex", flexDirection: "column", gap: 8, padding: "40px 24px", textAlign: "center" },
-  hint:      { fontFamily: "'Space Mono',monospace", fontSize: 11, marginBottom: 8 },
-  error:     { background: "rgba(255,95,87,0.1)", border: "1px solid rgba(255,95,87,0.3)", borderRadius: 4, color: "#FF5F57", fontFamily: "'Space Mono',monospace", fontSize: 12, marginTop: 14, padding: "10px 14px" },
-  tableWrap: { borderRadius: 8, overflowX: "auto" },
-  table:     { borderCollapse: "collapse", fontSize: 13, width: "100%" },
-  th:        { fontFamily: "'Syne',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", padding: "12px 16px", textAlign: "left", textTransform: "uppercase" },
-  td:        { fontFamily: "'Space Mono',monospace", fontSize: 12, padding: "11px 16px", verticalAlign: "middle" },
-  copyBtn:   { background: "none", border: "none", cursor: "pointer", fontSize: 12, padding: 0 },
-  footer:    { fontFamily: "'Space Mono',monospace", fontSize: 11, marginTop: 48, paddingTop: 24, textAlign: "center" },
-};
+  const exportCSV = () => {
+    const rows = [
+      'Address,Label,Type,Note',
+      ...entries.map(([addr, entry]) =>
+        `"${addr}","${getLabel(entry)}","${classifyEntity(entry)}","${getNote(entry)}"`
+      ),
+    ];
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'wallet-intel.csv'; a.click();
+  };
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ color: '#5A6A8A', fontFamily: "'Space Mono',monospace", fontSize: 10, letterSpacing: 1 }}>
+          {entries.length} RESULT{entries.length !== 1 ? 'S' : ''}
+        </span>
+        <button onClick={exportCSV} style={{ background: 'transparent', border: '1px solid #F0C040', borderRadius: 4, color: '#F0C040', cursor: 'pointer', fontFamily: "'Space Mono',monospace", fontSize: 11, padding: '4px 12px' }}>
+          ↓ Export CSV
+        </button>
+      </div>
+      <div style={{ borderRadius: 8, border: isDark ? '1px solid rgba(255,255,255,0.07)' : '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'Space Mono',monospace", fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }}>
+              {['Address', 'Label', 'Type', 'Note'].map(h => (
+                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: '#5A6A8A', fontWeight: 400, fontSize: 10, letterSpacing: 1, borderBottom: border }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map(([addr, entry], i) => {
+              const label = getLabel(entry);
+              const type = classifyEntity(entry);
+              const note = getNote(entry);
+              const color = isDark ? '#E8E8E8' : '#111827';
+              return (
+                <tr key={addr} style={{ background: i % 2 === 0 ? 'transparent' : (isDark ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.015)') }}>
+                  <td style={{ padding: '8px 12px', borderBottom: border }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ color: isDark ? '#A0B0C8' : '#6B7280', fontSize: 11 }}>{shortAddr(addr)}</span>
+                      <button onClick={() => copyAddr(addr)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: copied === addr ? '#50C878' : '#5A6A8A', fontSize: 11, padding: 0 }}>
+                        {copied === addr ? '✓' : '⎘'}
+                      </button>
+                    </div>
+                  </td>
+                  <td style={{ padding: '8px 12px', borderBottom: border, color: label === '—' ? '#5A6A8A' : color, fontWeight: label !== '—' ? 600 : 400 }}>{label}</td>
+                  <td style={{ padding: '8px 12px', borderBottom: border }}>
+                    <span style={{ background: TYPE_BG[type], color: TYPE_COLORS[type], border: `1px solid ${TYPE_COLORS[type]}55`, borderRadius: 4, padding: '2px 8px', fontSize: 10, fontWeight: 700, letterSpacing: 0.5 }}>
+                      {type}
+                    </span>
+                  </td>
+                  <td style={{ padding: '8px 12px', borderBottom: border, color: '#5A6A8A', fontSize: 11 }}>{note || '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Relationship Map ─────────────────────────────────────────────────────────
+function RelationshipMap({ isDark }) {
+  const [address, setAddress] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [nodes, setNodes] = useState([]);
+  const [centerInfo, setCenterInfo] = useState(null);
+  const [selected, setSelected] = useState(null);
+
+  const W = 560, H = 400, CX = W / 2, CY = H / 2;
+
+  const lookup = async () => {
+    const addr = address.trim();
+    if (!addr) return;
+    setLoading(true); setError(''); setNodes([]); setCenterInfo(null); setSelected(null);
+
+    try {
+      // Fetch transfers
+      const txRes = await fetch(`/api/lookup?address=${addr}`);
+      const txData = await txRes.json();
+      if (txData.error) throw new Error(txData.error);
+
+      const transfers = txData.transfers || [];
+      if (!transfers.length) {
+        setError('No transfers found — try a more active wallet or lower the USD threshold.');
+        setLoading(false); return;
+      }
+
+      // Aggregate counterparties
+      const cmap = {};
+      transfers.forEach(tx => {
+        const fromAddr = tx.fromAddress?.address;
+        const toAddr = tx.toAddress?.address;
+        const usd = tx.historicalUSD || 0;
+        const isOut = fromAddr?.toLowerCase() === addr.toLowerCase();
+        const counterparty = isOut ? toAddr : fromAddr;
+        const cpEntry = isOut ? tx.toAddress : tx.fromAddress;
+        if (!counterparty || counterparty.toLowerCase() === addr.toLowerCase()) return;
+        if (!cmap[counterparty]) cmap[counterparty] = { volume: 0, count: 0, entry: null, direction: isOut ? 'out' : 'in' };
+        cmap[counterparty].volume += usd;
+        cmap[counterparty].count++;
+        if (cpEntry) cmap[counterparty].entry = cpEntry;
+      });
+
+      const top = Object.entries(cmap).sort((a, b) => b[1].volume - a[1].volume).slice(0, 10);
+
+      // Batch label lookup
+      const allAddrs = [addr, ...top.map(([a]) => a)];
+      const labelRes = await fetch('/api/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addresses: allAddrs }),
+      });
+      const labelData = await labelRes.json();
+
+      const centerEntry = labelData[addr] || labelData[addr.toLowerCase()];
+      setCenterInfo({ address: addr, label: getLabel(centerEntry) !== '—' ? getLabel(centerEntry) : shortAddr(addr), type: classifyEntity(centerEntry) });
+
+      const maxVol = top[0]?.[1].volume || 1;
+      const angleStep = (2 * Math.PI) / Math.max(top.length, 1);
+      const radius = 148;
+
+      const builtNodes = top.map(([a, meta], i) => {
+        const angle = i * angleStep - Math.PI / 2;
+        const entry = labelData[a] || labelData[a.toLowerCase()] || meta.entry;
+        const label = getLabel(entry) !== '—' ? getLabel(entry) : shortAddr(a);
+        const type = classifyEntity(entry);
+        const size = 7 + (meta.volume / maxVol) * 13;
+        return {
+          id: a, x: CX + radius * Math.cos(angle), y: CY + radius * Math.sin(angle),
+          label, type, volume: meta.volume, count: meta.count, size, direction: meta.direction,
+        };
+      });
+
+      setNodes(builtNodes);
+    } catch (err) {
+      setError(err.message);
+    }
+    setLoading(false);
+  };
+
+  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)';
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input value={address} onChange={e => setAddress(e.target.value)} onKeyDown={e => e.key === 'Enter' && lookup()}
+          placeholder="0x... — enter any wallet address"
+          style={{ flex: 1, background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, color: isDark ? '#E8E8E8' : '#111', fontFamily: "'Space Mono',monospace", fontSize: 13, outline: 'none', padding: '10px 14px' }} />
+        <button onClick={lookup} disabled={loading}
+          style={{ background: '#F0C040', border: 'none', borderRadius: 6, color: '#0A0E1A', cursor: loading ? 'not-allowed' : 'pointer', fontFamily: "'Syne',sans-serif", fontSize: 13, fontWeight: 700, opacity: loading ? 0.6 : 1, padding: '10px 22px', whiteSpace: 'nowrap' }}>
+          {loading ? 'Mapping…' : 'Map It'}
+        </button>
+      </div>
+
+      {error && (
+        <div style={{ background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.25)', borderRadius: 6, color: '#FF8080', fontFamily: "'Space Mono',monospace", fontSize: 12, padding: '10px 14px', marginBottom: 12 }}>
+          {error}
+        </div>
+      )}
+
+      {nodes.length > 0 && (
+        <>
+          <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)', borderRadius: 12, border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)'}`, display: 'block' }}>
+            {/* Dashed orbit ring */}
+            <circle cx={CX} cy={CY} r={148} fill="none" stroke={isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} strokeDasharray="4 6" />
+
+            {/* Edges */}
+            {nodes.map(node => {
+              const maxVol = Math.max(...nodes.map(n => n.volume));
+              const opacity = 0.12 + (node.volume / maxVol) * 0.45;
+              const strokeW = 0.5 + (node.volume / maxVol) * 2.5;
+              return (
+                <line key={node.id} x1={CX} y1={CY} x2={node.x} y2={node.y}
+                  stroke={TYPE_COLORS[node.type]} strokeWidth={strokeW} strokeOpacity={opacity} />
+              );
+            })}
+
+            {/* Center node */}
+            <circle cx={CX} cy={CY} r={24} fill="#F0C04020" stroke="#F0C040" strokeWidth={2} />
+            <circle cx={CX} cy={CY} r={30} fill="none" stroke="#F0C040" strokeWidth={0.5} strokeOpacity={0.3} />
+            <text x={CX} y={CY + 4} textAnchor="middle" fill="#F0C040" fontSize={9} fontFamily="'Space Mono',monospace" fontWeight={700}>
+              {centerInfo?.label?.length > 14 ? centerInfo.label.slice(0, 12) + '…' : centerInfo?.label}
+            </text>
+
+            {/* Counterparty nodes */}
+            {nodes.map(node => (
+              <g key={node.id} style={{ cursor: 'pointer' }} onClick={() => setSelected(selected?.id === node.id ? null : node)}>
+                <circle cx={node.x} cy={node.y} r={node.size + 6} fill="transparent" />
+                <circle cx={node.x} cy={node.y} r={node.size}
+                  fill={selected?.id === node.id ? TYPE_COLORS[node.type] : `${TYPE_COLORS[node.type]}22`}
+                  stroke={TYPE_COLORS[node.type]} strokeWidth={selected?.id === node.id ? 0 : 1.5} />
+                <text x={node.x} y={node.y - node.size - 5} textAnchor="middle"
+                  fill={TYPE_COLORS[node.type]} fontSize={9} fontFamily="'Space Mono',monospace">
+                  {node.label.length > 13 ? node.label.slice(0, 11) + '…' : node.label}
+                </text>
+              </g>
+            ))}
+          </svg>
+
+          {/* Legend */}
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, justifyContent: 'center' }}>
+            {[...new Set(nodes.map(n => n.type))].map(type => (
+              <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: TYPE_COLORS[type] }} />
+                <span style={{ color: TYPE_COLORS[type], fontFamily: "'Space Mono',monospace", fontSize: 10 }}>{type}</span>
+              </div>
+            ))}
+            <span style={{ color: '#5A6A8A', fontFamily: "'Space Mono',monospace", fontSize: 10 }}>· node size = transfer volume · click to inspect</span>
+          </div>
+
+          {/* Selected node detail */}
+          {selected && (
+            <div style={{ marginTop: 12, background: TYPE_BG[selected.type], border: `1px solid ${TYPE_COLORS[selected.type]}44`, borderRadius: 8, padding: '12px 16px', fontFamily: "'Space Mono',monospace" }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ color: TYPE_COLORS[selected.type], fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{selected.label}</div>
+                  <div style={{ color: '#5A6A8A', fontSize: 11, marginBottom: 4 }}>{selected.id}</div>
+                  <div style={{ color: isDark ? '#A0B0C8' : '#6B7280', fontSize: 11 }}>
+                    {selected.count} tx · {fmtUSD(selected.volume)} total · {selected.direction === 'out' ? '→ outflow' : '← inflow'}
+                  </div>
+                </div>
+                <span style={{ background: TYPE_BG[selected.type], color: TYPE_COLORS[selected.type], border: `1px solid ${TYPE_COLORS[selected.type]}44`, borderRadius: 4, padding: '3px 10px', fontSize: 10, fontWeight: 700 }}>
+                  {selected.type}
+                </span>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {!nodes.length && !loading && !error && (
+        <div style={{ textAlign: 'center', padding: '48px 24px', color: '#5A6A8A', fontFamily: "'Space Mono',monospace", fontSize: 12, lineHeight: 1.8 }}>
+          Enter any wallet to see its top counterparties mapped visually.<br />
+          <span style={{ fontSize: 10, opacity: 0.6 }}>Shows up to 10 connections · Node size = transfer volume · Click any node to inspect it</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main app ─────────────────────────────────────────────────────────────────
+export default function Home() {
+  const [theme, setTheme] = useState('dark');
+  const [tab, setTab] = useState('single');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [results, setResults] = useState({});
+  const [singleAddr, setSingleAddr] = useState('');
+  const [multiAddrs, setMultiAddrs] = useState('');
+  const [csvFile, setCsvFile] = useState(null);
+  const [csvName, setCsvName] = useState('');
+  const fileInputRef = useRef(null);
+
+  const isDark = theme === 'dark';
+  const bg = isDark ? '#0A0E1A' : '#F5F7FA';
+  const surface = isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF';
+  const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.1)';
+  const textColor = isDark ? '#E8E8E8' : '#111827';
+  const subColor = isDark ? '#5A6A8A' : '#6B7280';
+  const inputStyle = { background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', border: `1px solid ${borderColor}`, borderRadius: 6, color: textColor, fontFamily: "'Space Mono',monospace", fontSize: 13, outline: 'none', padding: '10px 14px', width: '100%', boxSizing: 'border-box' };
+
+  const doLookup = async (addresses) => {
+    if (!addresses.length) return;
+    setLoading(true); setError(''); setResults({});
+    try {
+      const res = await fetch('/api/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addresses }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setResults(data);
+    } catch (err) {
+      setError(err.message);
+    }
+    setLoading(false);
+  };
+
+  const handleCSV = async () => {
+    if (!csvFile) return;
+    const text = await csvFile.text();
+    const addrs = [...text.matchAll(/0x[a-fA-F0-9]{40}/g)].map(m => m[0]);
+    const unique = [...new Set(addrs)];
+    if (!unique.length) { setError('No Ethereum addresses found in this CSV.'); return; }
+    doLookup(unique);
+  };
+
+  const multiCount = multiAddrs.split(/[\n,]+/).filter(a => a.trim().startsWith('0x') && a.trim().length === 42).length;
+
+  const tabStyle = (t) => ({
+    background: tab === t ? '#F0C040' : 'transparent',
+    border: `1px solid ${tab === t ? '#F0C040' : borderColor}`,
+    borderRadius: 6,
+    color: tab === t ? '#0A0E1A' : subColor,
+    cursor: 'pointer',
+    fontFamily: "'Syne',sans-serif",
+    fontSize: 13,
+    fontWeight: 700,
+    padding: '7px 16px',
+    transition: 'all 0.15s',
+  });
+
+  const btnStyle = (disabled) => ({
+    background: '#F0C040',
+    border: 'none',
+    borderRadius: 6,
+    color: '#0A0E1A',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    fontFamily: "'Syne',sans-serif",
+    fontSize: 13,
+    fontWeight: 700,
+    opacity: disabled ? 0.6 : 1,
+    padding: '10px 22px',
+    whiteSpace: 'nowrap',
+  });
+
+  return (
+    <>
+      <Head>
+        <title>Wallet Intel</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+      </Head>
+
+      <div style={{ background: bg, minHeight: '100vh', paddingBottom: 64, transition: 'background 0.2s' }}>
+        {/* Header */}
+        <div style={{ borderBottom: `1px solid ${borderColor}`, padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: 780, margin: '0 auto' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#F0C040', boxShadow: '0 0 10px #F0C040' }} />
+              <span style={{ color: '#F0C040', fontFamily: "'Syne',sans-serif", fontSize: 18, fontWeight: 800, letterSpacing: 2 }}>WALLET INTEL</span>
+            </div>
+            <div style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10, marginTop: 2, letterSpacing: 0.5 }}>
+              On-chain label intelligence · Powered by <span style={{ color: '#4DA6FF' }}>Arkham</span>
+            </div>
+          </div>
+          <button onClick={() => setTheme(isDark ? 'light' : 'dark')}
+            style={{ background: surface, border: `1px solid ${borderColor}`, borderRadius: 20, color: subColor, cursor: 'pointer', fontFamily: "'Space Mono',monospace", fontSize: 11, padding: '5px 14px' }}>
+            {isDark ? '☀ Light' : '◑ Dark'}
+          </button>
+        </div>
+
+        {/* Card */}
+        <div style={{ maxWidth: 780, margin: '32px auto', padding: '0 16px' }}>
+          <div style={{ background: surface, border: `1px solid ${borderColor}`, borderRadius: 14, padding: 24 }}>
+
+            {/* Tabs */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+              {[
+                { id: 'single', label: 'Single Address' },
+                { id: 'multi',  label: 'Multiple Addresses' },
+                { id: 'csv',    label: 'Upload CSV' },
+                { id: 'map',    label: '🕸 Relationship Map' },
+              ].map(t => (
+                <button key={t.id} onClick={() => { setTab(t.id); setResults({}); setError(''); }} style={tabStyle(t.id)}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Single */}
+            {tab === 'single' && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input value={singleAddr} onChange={e => setSingleAddr(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && doLookup([singleAddr.trim()])}
+                  placeholder="0x..." style={{ ...inputStyle, flex: 1 }} />
+                <button onClick={() => doLookup([singleAddr.trim()])} disabled={loading} style={btnStyle(loading)}>
+                  {loading ? 'Looking up…' : 'Look Up'}
+                </button>
+              </div>
+            )}
+
+            {/* Multi */}
+            {tab === 'multi' && (
+              <div>
+                <textarea value={multiAddrs} onChange={e => setMultiAddrs(e.target.value)}
+                  placeholder={'Paste addresses — one per line or comma-separated\n0x...\n0x...\n0x...'}
+                  rows={5} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.7 }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                  <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10 }}>
+                    {multiCount} valid address{multiCount !== 1 ? 'es' : ''} · max 50 per lookup
+                  </span>
+                  <button onClick={() => doLookup(multiAddrs.split(/[\n,]+/).map(a => a.trim()).filter(a => a.startsWith('0x') && a.length === 42))}
+                    disabled={loading} style={btnStyle(loading)}>
+                    {loading ? 'Looking up…' : 'Look Up All'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* CSV */}
+            {tab === 'csv' && (
+              <div>
+                <div onClick={() => fileInputRef.current?.click()}
+                  style={{ border: `2px dashed ${borderColor}`, borderRadius: 8, cursor: 'pointer', padding: '36px 24px', textAlign: 'center' }}>
+                  <div style={{ color: '#F0C040', fontSize: 30, marginBottom: 8 }}>⬆</div>
+                  <div style={{ color: textColor, fontFamily: "'Syne',sans-serif", fontSize: 14, fontWeight: 700 }}>{csvName || 'Click to upload a CSV file'}</div>
+                  <div style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10, marginTop: 4 }}>
+                    Any CSV containing 0x addresses — auto-detected · results enriched with labels
+                  </div>
+                  <input ref={fileInputRef} type="file" accept=".csv,.txt" style={{ display: 'none' }}
+                    onChange={e => { const f = e.target.files[0]; if (f) { setCsvFile(f); setCsvName(f.name); } }} />
+                </div>
+                {csvFile && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+                    <button onClick={handleCSV} disabled={loading} style={btnStyle(loading)}>
+                      {loading ? 'Enriching…' : 'Enrich CSV'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Relationship Map */}
+            {tab === 'map' && <RelationshipMap isDark={isDark} />}
+
+            {/* Error */}
+            {error && (
+              <div style={{ background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.25)', borderRadius: 6, color: '#FF8080', fontFamily: "'Space Mono',monospace", fontSize: 12, marginTop: 12, padding: '10px 14px' }}>
+                {error}
+              </div>
+            )}
+
+            {/* Stats + Table (non-map tabs) */}
+            {tab !== 'map' && (
+              <>
+                <StatsBar results={results} isDark={isDark} />
+                <ResultsTable results={results} isDark={isDark} />
+              </>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div style={{ textAlign: 'center', marginTop: 20, color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10 }}>
+            Built by{' '}
+            <a href="https://twitter.com/modestus_eth" target="_blank" rel="noreferrer" style={{ color: '#4DA6FF', textDecoration: 'none' }}>
+              @modestus_eth
+            </a>
+            {' '}· Data from Arkham Intelligence
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
