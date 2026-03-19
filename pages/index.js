@@ -360,10 +360,12 @@ export default function Home() {
   const [csvGroupTab, setCsvGroupTab] = useState('All');
   const [csvName, setCsvName] = useState('');
   const [csvCopied, setCsvCopied] = useState(null);
-  const [csvAddresses, setCsvAddresses] = useState([]); // detected addresses before lookup
+  const [csvAddresses, setCsvAddresses] = useState([]);
+  const [overrides, setOverrides] = useState({}); // manual reclassifications: {addr: 'CEX'|'Fund'|'DeFi'|'Whale'|'Unclassified'}
+  const [selected, setSelected] = useState(new Set());
   const fileInputRef = useRef(null);
 
-  const isDark = theme === 'dark';
+  const isDark = true;
   const bg = '#0A0E1A';
   const surface = 'rgba(255,255,255,0.04)';
   const borderColor = 'rgba(255,255,255,0.08)';
@@ -374,6 +376,29 @@ export default function Home() {
     borderRadius: 6, color: textColor, fontFamily: "'Space Mono',monospace",
     fontSize: 13, outline: 'none', padding: '10px 14px', width: '100%', boxSizing: 'border-box',
   };
+
+  // Classification — only auto-classify what Arkham confirms
+  const classifyAddr = (addr, entry) => {
+    if (overrides[addr]) return overrides[addr];
+    if (!entry) return 'Unclassified';
+    const type = (entry.arkhamEntity?.type || '').toLowerCase();
+    const name = (entry.arkhamEntity?.name || entry.arkhamLabel?.name || '').toLowerCase();
+    if (type.includes('cex') || type.includes('exchange') ||
+        ['binance','coinbase','kraken','okx','bybit','gate','kucoin','huobi','upbit','bitfinex','gemini','crypto.com','bitmex','bitget','mexc'].some(x => name.includes(x)) ||
+        name.includes('deposit') || name.includes('withdrawal') || name.includes('hot wallet'))
+      return 'CEX';
+    if (type.includes('fund') || type.includes('vc') ||
+        ['fund','capital','ventures','invest','partners','asset'].some(x => name.includes(x)))
+      return 'Fund';
+    if (type.includes('defi') || type.includes('protocol') || type.includes('contract') ||
+        name.includes('bridge') || name.includes('router') || name.includes('pool') || name.includes('vault'))
+      return 'DeFi';
+    // Has a label but not infrastructure = could be whale, but we leave it Unclassified for user to decide
+    return 'Unclassified';
+  };
+
+  const getEntityName = (entry) => entry?.arkhamEntity?.name || '';
+  const getLabelName = (entry) => entry?.arkhamLabel?.name || '';
 
   // ── Single / Multi lookup ──────────────────────────────────────────────────
   const doLookup = async (addresses) => {
@@ -392,14 +417,11 @@ export default function Home() {
     setLoading(false);
   };
 
-  // ── CSV upload → detect addresses, show count, wait for Look Up ────────────
+  // ── CSV ────────────────────────────────────────────────────────────────────
   const handleCSVFile = async (file) => {
     if (!file) return;
-    setCsvName(file.name);
-    setCsvResults(null);
-    setCsvAddresses([]);
-    setCsvGroupTab('All');
-    setError('');
+    setCsvName(file.name); setCsvResults(null); setCsvAddresses([]);
+    setCsvGroupTab('All'); setError(''); setOverrides({}); setSelected(new Set());
     try {
       const text = await file.text();
       const matches = text.match(/0x[a-fA-F0-9]{40}/gi) || [];
@@ -411,7 +433,7 @@ export default function Home() {
 
   const runCSVLookup = async () => {
     if (!csvAddresses.length) return;
-    setLoading(true); setError(''); setCsvResults(null);
+    setLoading(true); setError(''); setCsvResults(null); setOverrides({}); setSelected(new Set());
     try {
       const res = await fetch('/api/lookup', {
         method: 'POST',
@@ -427,20 +449,43 @@ export default function Home() {
 
   const clearCSV = () => {
     setCsvResults(null); setCsvName(''); setCsvGroupTab('All');
-    setCsvAddresses([]); setError('');
+    setCsvAddresses([]); setError(''); setOverrides({}); setSelected(new Set());
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // ── CSV grouped data ───────────────────────────────────────────────────────
+  // ── Grouping with overrides ────────────────────────────────────────────────
   const csvEntries = csvResults ? Object.entries(csvResults) : [];
-  const csvGroups = { All: csvEntries, CEX: [], Fund: [], DeFi: [], Whale: [], Unknown: [] };
-  csvEntries.forEach(([addr, entry]) => { csvGroups[classifyEntity(entry)].push([addr, entry]); });
+  const allGroups = ['All', 'CEX', 'Fund', 'DeFi', 'Whale', 'Unclassified'];
+  const csvGroups = { All: [], CEX: [], Fund: [], DeFi: [], Whale: [], Unclassified: [] };
+  csvEntries.forEach(([addr, entry]) => {
+    const type = classifyAddr(addr, entry);
+    csvGroups['All'].push([addr, entry, type]);
+    csvGroups[type].push([addr, entry, type]);
+  });
   const activeGroup = csvGroups[csvGroupTab] || [];
 
+  // ── Selection + reclassification ──────────────────────────────────────────
+  const toggleSelect = (addr) => {
+    const s = new Set(selected);
+    s.has(addr) ? s.delete(addr) : s.add(addr);
+    setSelected(s);
+  };
+  const toggleSelectAll = () => {
+    if (selected.size === activeGroup.length) setSelected(new Set());
+    else setSelected(new Set(activeGroup.map(([addr]) => addr)));
+  };
+  const reclassifySelected = (newType) => {
+    const o = { ...overrides };
+    selected.forEach(addr => { o[addr] = newType; });
+    setOverrides(o);
+    setSelected(new Set());
+  };
+
+  // ── Export ─────────────────────────────────────────────────────────────────
   const exportGroupCSV = (groupName) => {
-    const rows = ['Address,Label,Type,Note',
-      ...csvGroups[groupName].map(([addr, entry]) =>
-        `"${addr}","${getLabel(entry)}","${classifyEntity(entry)}","${getNote(entry)}"`)];
+    const rows = ['Address,Entity,Label,Type,Note',
+      ...csvGroups[groupName].map(([addr, entry, type]) =>
+        `"${addr}","${getEntityName(entry)}","${getLabelName(entry)}","${type}","${entry?.arkhamEntity?.note || ''}"`)];
     const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -478,6 +523,10 @@ export default function Home() {
     fontFamily: "'Space Mono',monospace", fontSize: 11, padding: '5px 12px',
   });
 
+  const ALL_TYPES = ['CEX', 'Fund', 'DeFi', 'Whale', 'Unclassified'];
+  const TYPE_COLORS_EXT = { ...TYPE_COLORS, Unclassified: '#5A6A8A', Whale: '#B19CD9' };
+  const TYPE_BG_EXT = { ...TYPE_BG, Unclassified: 'rgba(90,106,138,0.12)', Whale: 'rgba(177,156,217,0.15)' };
+
   return (
     <>
       <Head>
@@ -486,9 +535,9 @@ export default function Home() {
         <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
       </Head>
 
-      <div style={{ background: bg, minHeight: '100vh', paddingBottom: 64 }}>
+      <div style={{ background: bg, minHeight: '100vh', paddingBottom: 80 }}>
         {/* Header */}
-        <div style={{ borderBottom: `1px solid ${borderColor}`, padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: 820, margin: '0 auto' }}>
+        <div style={{ borderBottom: `1px solid ${borderColor}`, padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: 960, margin: '0 auto' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#F0C040', boxShadow: '0 0 10px #F0C040' }} />
@@ -498,13 +547,9 @@ export default function Home() {
               On-chain label intelligence · Powered by <span style={{ color: '#4DA6FF' }}>Arkham</span>
             </div>
           </div>
-          <button onClick={() => setTheme(isDark ? 'light' : 'dark')}
-            style={{ background: surface, border: `1px solid ${borderColor}`, borderRadius: 20, color: subColor, cursor: 'pointer', fontFamily: "'Space Mono',monospace", fontSize: 11, padding: '5px 14px' }}>
-            ◑ Dim
-          </button>
         </div>
 
-        <div style={{ maxWidth: 820, margin: '32px auto', padding: '0 16px' }}>
+        <div style={{ maxWidth: 960, margin: '32px auto', padding: '0 16px' }}>
           <div style={{ background: surface, border: `1px solid ${borderColor}`, borderRadius: 14, padding: 24 }}>
 
             {/* Main tabs */}
@@ -521,7 +566,7 @@ export default function Home() {
               ))}
             </div>
 
-            {/* ── Single ── */}
+            {/* Single */}
             {tab === 'single' && (
               <div style={{ display: 'flex', gap: 8 }}>
                 <input value={singleAddr} onChange={e => setSingleAddr(e.target.value)}
@@ -533,7 +578,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* ── Multi ── */}
+            {/* Multi */}
             {tab === 'multi' && (
               <div>
                 <textarea value={multiAddrs} onChange={e => setMultiAddrs(e.target.value)}
@@ -551,10 +596,10 @@ export default function Home() {
               </div>
             )}
 
-            {/* ── CSV ── */}
+            {/* CSV TAB */}
             {tab === 'csv' && (
               <div>
-                {/* Upload drop zone */}
+                {/* Upload zone */}
                 {!csvResults && (
                   <div
                     onClick={() => fileInputRef.current?.click()}
@@ -571,11 +616,11 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Address count + Look Up button */}
+                {/* Count + Look Up */}
                 {csvAddresses.length > 0 && !csvResults && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
                     <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 11 }}>
-                      {csvAddresses.length} valid address{csvAddresses.length !== 1 ? 'es' : ''} detected in <span style={{ color: textColor }}>{csvName}</span>
+                      {csvAddresses.length} addresses detected in <span style={{ color: textColor }}>{csvName}</span>
                     </span>
                     <button onClick={runCSVLookup} disabled={loading} style={btnStyle(loading)}>
                       {loading ? 'Looking up…' : 'Look Up All'}
@@ -589,7 +634,7 @@ export default function Home() {
                     {/* Top bar */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                       <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10 }}>
-                        {csvEntries.length} addresses screened
+                        {csvEntries.length} addresses screened · <span style={{ color: '#A0B0C8' }}>{csvName}</span>
                       </span>
                       <button onClick={clearCSV} style={{ ...ghostBtn('#FF8080'), fontSize: 11 }}>✕ Clear</button>
                     </div>
@@ -597,17 +642,17 @@ export default function Home() {
                     {/* Stats bar */}
                     <div style={{ marginBottom: 14 }}>
                       <div style={{ height: 8, borderRadius: 4, overflow: 'hidden', display: 'flex', marginBottom: 8 }}>
-                        {Object.entries(csvGroups).filter(([k, v]) => k !== 'All' && v.length > 0).map(([type, group]) => (
-                          <div key={type} style={{ flex: group.length, background: TYPE_COLORS[type] }} title={`${type}: ${group.length}`} />
+                        {ALL_TYPES.filter(t => csvGroups[t].length > 0).map(type => (
+                          <div key={type} style={{ flex: csvGroups[type].length, background: TYPE_COLORS_EXT[type] }} title={`${type}: ${csvGroups[type].length}`} />
                         ))}
                       </div>
                       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                        {Object.entries(csvGroups).filter(([k, v]) => k !== 'All' && v.length > 0).map(([type, group]) => (
+                        {ALL_TYPES.filter(t => csvGroups[t].length > 0).map(type => (
                           <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <div style={{ width: 7, height: 7, borderRadius: '50%', background: TYPE_COLORS[type] }} />
-                            <span style={{ color: TYPE_COLORS[type], fontFamily: "'Space Mono',monospace", fontSize: 10 }}>{type}</span>
+                            <div style={{ width: 7, height: 7, borderRadius: '50%', background: TYPE_COLORS_EXT[type] }} />
+                            <span style={{ color: TYPE_COLORS_EXT[type], fontFamily: "'Space Mono',monospace", fontSize: 10 }}>{type}</span>
                             <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10 }}>
-                              {group.length} ({Math.round(group.length / csvEntries.length * 100)}%)
+                              {csvGroups[type].length} ({Math.round(csvGroups[type].length / csvEntries.length * 100)}%)
                             </span>
                           </div>
                         ))}
@@ -616,25 +661,26 @@ export default function Home() {
 
                     {/* Group tabs */}
                     <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                      {Object.entries(csvGroups).map(([type, group]) => {
-                        if (type !== 'All' && group.length === 0) return null;
+                      {['All', ...ALL_TYPES].filter((t, i, arr) => arr.indexOf(t) === i).map(type => {
+                        const count = type === 'All' ? csvEntries.length : csvGroups[type].length;
+                        if (type !== 'All' && count === 0) return null;
                         const active = csvGroupTab === type;
-                        const color = type === 'All' ? '#F0C040' : TYPE_COLORS[type];
+                        const color = type === 'All' ? '#F0C040' : TYPE_COLORS_EXT[type];
                         return (
-                          <button key={type} onClick={() => setCsvGroupTab(type)} style={{
+                          <button key={type} onClick={() => { setCsvGroupTab(type); setSelected(new Set()); }} style={{
                             background: active ? `${color}20` : 'transparent',
                             border: `1px solid ${active ? color : borderColor}`,
                             borderRadius: 5, color: active ? color : subColor,
                             cursor: 'pointer', fontFamily: "'Space Mono',monospace",
                             fontSize: 11, fontWeight: active ? 700 : 400, padding: '4px 12px',
                           }}>
-                            {type} ({group.length})
+                            {type} ({count})
                           </button>
                         );
                       })}
                     </div>
 
-                    {/* Action buttons */}
+                    {/* Export/Copy actions */}
                     {activeGroup.length > 0 && (
                       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                         <button onClick={() => exportGroupCSV(csvGroupTab)} style={ghostBtn('#F0C040')}>
@@ -647,41 +693,75 @@ export default function Home() {
                     )}
 
                     {/* Table */}
-                    <div style={{ borderRadius: 8, border: `1px solid ${borderColor}`, overflow: 'hidden', maxHeight: 360, overflowY: 'auto' }}>
+                    <div style={{ borderRadius: 8, border: `1px solid ${borderColor}`, overflow: 'hidden', maxHeight: 420, overflowY: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'Space Mono',monospace", fontSize: 11 }}>
-                        <thead style={{ position: 'sticky', top: 0, background: '#0D1220' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#0D1220', zIndex: 1 }}>
                           <tr>
-                            {['#', 'Address', 'Label', 'Type', 'Note'].map(h => (
+                            <th style={{ padding: '8px 10px', borderBottom: `1px solid ${borderColor}`, width: 32 }}>
+                              <input type="checkbox"
+                                checked={selected.size === activeGroup.length && activeGroup.length > 0}
+                                onChange={toggleSelectAll}
+                                style={{ cursor: 'pointer', accentColor: '#F0C040' }} />
+                            </th>
+                            {['Address', 'Entity', 'Label', 'Type', 'Note'].map(h => (
                               <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: subColor, fontWeight: 400, fontSize: 10, letterSpacing: 1, borderBottom: `1px solid ${borderColor}` }}>{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {activeGroup.map(([addr, entry], i) => {
-                            const label = getLabel(entry);
-                            const type = classifyEntity(entry);
-                            const note = getNote(entry);
+                          {activeGroup.map(([addr, entry, type], i) => {
+                            const entity = getEntityName(entry);
+                            const label = getLabelName(entry);
+                            const note = entry?.arkhamEntity?.note || '';
+                            const isSelected = selected.has(addr);
                             return (
-                              <tr key={addr} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)' }}>
-                                <td style={{ padding: '7px 10px', color: subColor, borderBottom: `1px solid ${borderColor}`, fontSize: 10 }}>{i + 1}</td>
-                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, color: '#A0B0C8' }}>{shortAddr(addr)}</td>
-                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, color: label === '—' ? subColor : textColor, fontWeight: label !== '—' ? 700 : 400 }}>{label}</td>
-                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}` }}>
-                                  <span style={{ background: TYPE_BG[type], color: TYPE_COLORS[type], border: `1px solid ${TYPE_COLORS[type]}44`, borderRadius: 4, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>{type}</span>
+                              <tr key={addr} onClick={() => toggleSelect(addr)} style={{ background: isSelected ? 'rgba(240,192,64,0.06)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)', cursor: 'pointer' }}>
+                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, textAlign: 'center' }}>
+                                  <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(addr)}
+                                    onClick={e => e.stopPropagation()}
+                                    style={{ cursor: 'pointer', accentColor: '#F0C040' }} />
                                 </td>
-                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, color: subColor }}>{note || '—'}</td>
+                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, color: '#A0B0C8' }}>{shortAddr(addr)}</td>
+                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, color: entity ? textColor : subColor, fontWeight: entity ? 700 : 400 }}>{entity || '—'}</td>
+                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, color: label ? '#C8D8F0' : subColor }}>{label || '—'}</td>
+                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}` }}>
+                                  <span style={{ background: TYPE_BG_EXT[type], color: TYPE_COLORS_EXT[type], border: `1px solid ${TYPE_COLORS_EXT[type]}44`, borderRadius: 4, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>{type}</span>
+                                </td>
+                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, color: subColor, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{note || '—'}</td>
                               </tr>
                             );
                           })}
                         </tbody>
                       </table>
                     </div>
+
+                    {/* Floating reclassify bar */}
+                    {selected.size > 0 && (
+                      <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: '#0D1525', border: '2px solid #F0C040', borderRadius: 10, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', boxShadow: '0 8px 32px rgba(0,0,0,0.6)', maxWidth: 700, width: 'calc(100% - 48px)', zIndex: 100 }}>
+                        <span style={{ color: '#F0C040', fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13 }}>
+                          {selected.size} selected
+                        </span>
+                        <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 11 }}>Move to →</span>
+                        {ALL_TYPES.map(type => (
+                          <button key={type} onClick={() => reclassifySelected(type)} style={{
+                            background: `${TYPE_COLORS_EXT[type]}22`, border: `1px solid ${TYPE_COLORS_EXT[type]}`,
+                            borderRadius: 4, color: TYPE_COLORS_EXT[type], cursor: 'pointer',
+                            fontFamily: "'Syne',sans-serif", fontSize: 12, fontWeight: 700, padding: '5px 14px'
+                          }}>
+                            {type}
+                          </button>
+                        ))}
+                        <button onClick={() => setSelected(new Set())} style={{ background: 'transparent', border: 'none', color: subColor, cursor: 'pointer', fontFamily: "'Space Mono',monospace", fontSize: 11, marginLeft: 'auto' }}>
+                          ✕ Deselect all
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
 
-            {/* ── Relationship Map ── */}
+            {/* Relationship Map */}
             {tab === 'map' && <RelationshipMap isDark={isDark} />}
 
             {/* Error */}
@@ -703,7 +783,7 @@ export default function Home() {
           <div style={{ textAlign: 'center', marginTop: 20, color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10 }}>
             Built by{' '}
             <a href="https://twitter.com/modestus_eth" target="_blank" rel="noreferrer" style={{ color: '#4DA6FF', textDecoration: 'none' }}>@modestus_eth</a>
-            {' '}· Data from Arkham Intelligence
+            {''} · Data from Arkham Intelligence
           </div>
         </div>
       </div>
