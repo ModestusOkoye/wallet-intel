@@ -360,12 +360,12 @@ export default function Home() {
   const fileInputRef = useRef(null);
 
   const isDark = theme === 'dark';
-  const bg = isDark ? '#0A0E1A' : '#F5F7FA';
-  const surface = isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF';
-  const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.1)';
-  const textColor = isDark ? '#E8E8E8' : '#111827';
-  const subColor = isDark ? '#5A6A8A' : '#6B7280';
-  const inputStyle = { background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', border: `1px solid ${borderColor}`, borderRadius: 6, color: textColor, fontFamily: "'Space Mono',monospace", fontSize: 13, outline: 'none', padding: '10px 14px', width: '100%', boxSizing: 'border-box' };
+  const bg = isDark ? '#0A0E1A' : '#131824';
+  const surface = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.05)';
+  const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.1)';
+  const textColor = isDark ? '#E8E8E8' : '#D8E0EE';
+  const subColor = isDark ? '#5A6A8A' : '#5A6A8A';
+  const inputStyle = { background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.07)', border: `1px solid ${borderColor}`, borderRadius: 6, color: textColor, fontFamily: "'Space Mono',monospace", fontSize: 13, outline: 'none', padding: '10px 14px', width: '100%', boxSizing: 'border-box' };
 
   const doLookup = async (addresses) => {
     if (!addresses.length) return;
@@ -445,7 +445,7 @@ export default function Home() {
           </div>
           <button onClick={() => setTheme(isDark ? 'light' : 'dark')}
             style={{ background: surface, border: `1px solid ${borderColor}`, borderRadius: 20, color: subColor, cursor: 'pointer', fontFamily: "'Space Mono',monospace", fontSize: 11, padding: '5px 14px' }}>
-            {isDark ? '☀ Light' : '◑ Dark'}
+            {isDark ? '◑ Dim' : '● Dark'}
           </button>
         </div>
 
