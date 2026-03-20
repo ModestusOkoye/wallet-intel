@@ -576,7 +576,7 @@ export default function Home() {
             {tab === 'single' && (
   <div>
     <div style={{ display: 'flex', gap: 8 }}>
-      <input value={singleAddr} onChange={e => { setSingleAddr(e.target.value); setError(''); }}
+      <input value={singleAddr} onChange={e => { setSingleAddr(e.target.value); setError(''); if (!e.target.value.trim()) { setResults({}); } }}
         onKeyDown={e => {
           if (e.key === 'Enter') {
             const addr = singleAddr.trim();
@@ -599,7 +599,7 @@ export default function Home() {
             {/* Multi */}
             {tab === 'multi' && (
               <div>
-                <textarea value={multiAddrs} onChange={e => setMultiAddrs(e.target.value)}
+                <textarea value={multiAddrs} onChange={e => { setMultiAddrs(e.target.value); if (!e.target.value.trim()) { setCsvResults(null); setCsvName(''); setSelected(new Set()); setOverrides({}); } }}
                   placeholder={'Paste addresses — one per line or comma-separated\n0x...\n0x...'}
                   rows={5} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.7 }} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
@@ -615,10 +615,10 @@ export default function Home() {
             )}
 
             {/* CSV TAB */}
-            {tab === 'csv' && (
+            {(tab === 'csv' || tab === 'multi') && (
               <div>
                 {/* Upload zone */}
-                {!csvResults && (
+                {!csvResults && tab === 'csv' && (
                   <div
                     onClick={() => fileInputRef.current?.click()}
                     style={{ border: `2px dashed ${borderColor}`, borderRadius: 8, cursor: 'pointer', padding: '36px 24px', textAlign: 'center' }}>
