@@ -404,6 +404,7 @@ export default function Home() {
   const doLookup = async (addresses) => {
     if (!addresses.length) return;
     setLoading(true); setError(''); setResults({});
+    setCsvResults(null); setCsvGroupTab('All'); setSelected(new Set()); setOverrides({});
     try {
       const res = await fetch('/api/lookup', {
         method: 'POST',
@@ -412,7 +413,12 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      setResults(data);
+      if (tab === 'multi') {
+        setCsvResults(data);
+        setCsvName(`${addresses.length} addresses`);
+      } else {
+        setResults(data);
+      }
     } catch (err) { setError(err.message); }
     setLoading(false);
   };
@@ -783,8 +789,8 @@ export default function Home() {
               </div>
             )}
 
-            {/* Single/Multi results */}
-            {(tab === 'single' || tab === 'multi') && (
+            {/* Single results only */}
+            {tab === 'single' && (
               <>
                 <StatsBar results={results} isDark={isDark} />
                 <ResultsTable results={results} isDark={isDark} />
