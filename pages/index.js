@@ -568,15 +568,27 @@ export default function Home() {
 
             {/* Single */}
             {tab === 'single' && (
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input value={singleAddr} onChange={e => setSingleAddr(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && doLookup([singleAddr.trim()])}
-                  placeholder="0x..." style={{ ...inputStyle, flex: 1 }} />
-                <button onClick={() => doLookup([singleAddr.trim()])} disabled={loading} style={btnStyle(loading)}>
-                  {loading ? 'Looking up…' : 'Look Up'}
-                </button>
-              </div>
-            )}
+  <div>
+    <div style={{ display: 'flex', gap: 8 }}>
+      <input value={singleAddr} onChange={e => { setSingleAddr(e.target.value); setError(''); }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') {
+            const addr = singleAddr.trim();
+            if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) { setError('Invalid Ethereum address — must be 0x followed by exactly 40 hex characters.'); return; }
+            doLookup([addr]);
+          }
+        }}
+        placeholder="0x..." style={{ ...inputStyle, flex: 1 }} />
+      <button onClick={() => {
+        const addr = singleAddr.trim();
+        if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) { setError('Invalid Ethereum address — must be 0x followed by exactly 40 hex characters.'); return; }
+        doLookup([addr]);
+      }} disabled={loading} style={btnStyle(loading)}>
+        {loading ? 'Looking up…' : 'Look Up'}
+      </button>
+    </div>
+  </div>
+)}
 
             {/* Multi */}
             {tab === 'multi' && (
