@@ -1,810 +1,109 @@
-import { useState, useRef } from 'react';
-import Head from 'next/head';
+import Link from 'next/link';
+import Layout from '../components/Layout';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function classifyEntity(entry) {
-  if (!entry) return 'Unknown';
-  const type = (entry.arkhamEntity?.type || '').toLowerCase();
-  const name = (entry.arkhamEntity?.name || entry.arkhamLabel?.name || '').toLowerCase();
-  if (type.includes('cex') || type.includes('exchange') ||
-      ['binance','coinbase','kraken','okx','bybit','gate','kucoin','huobi','upbit','bitfinex','gemini','crypto.com'].some(x => name.includes(x)))
-    return 'CEX';
-  if (type.includes('fund') || type.includes('vc') ||
-      ['fund','capital','ventures','invest','partners'].some(x => name.includes(x)))
-    return 'Fund';
-  if (type.includes('defi') || type.includes('protocol') || type.includes('contract'))
-    return 'DeFi';
-  if (entry.arkhamEntity?.name || entry.arkhamLabel?.name) return 'Whale';
-  return 'Unknown';
-}
+const STATS = [
+  { value: '20+', label: 'Chains Supported' },
+  { value: '3B+', label: 'Wallets Searchable' },
+  { value: '5', label: 'Intelligence Tools' },
+  { value: '100%', label: 'Free to Use' },
+];
 
-function getLabel(entry) {
-  if (!entry) return '—';
-  return entry.arkhamEntity?.name || entry.arkhamLabel?.name || '—';
-}
+const FEATURES = [
+  { icon: '⬡', title: 'Wallet Label Search', desc: 'Instantly identify any wallet — CEX, fund, DeFi protocol, or whale. Paste an address, get the label.' },
+  { icon: '✦', title: 'LLM-Powered Discovery', desc: 'Ask in plain English. "Give me 50 market maker wallets on Ethereum" — and get exactly that.' },
+  { icon: '◎', title: 'Relationship Mapping', desc: 'Visualize who a wallet sends to, how often, and what type of entities they interact with.' },
+  { icon: '◈', title: 'Bridge Cluster Analysis', desc: 'Trace wallets across chains. See every address a wallet has ever bridged to or from.' },
+];
 
-function getNote(entry) {
-  if (!entry) return '';
-  return entry.arkhamLabel?.name || entry.arkhamEntity?.note || '';
-}
-
-function shortAddr(addr) {
-  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
-}
-
-function fmtUSD(val) {
-  if (val >= 1e9) return `$${(val / 1e9).toFixed(2)}B`;
-  if (val >= 1e6) return `$${(val / 1e6).toFixed(1)}M`;
-  if (val >= 1e3) return `$${(val / 1e3).toFixed(0)}K`;
-  return `$${val.toFixed(0)}`;
-}
-
-const TYPE_COLORS = {
-  CEX:     '#4DA6FF',
-  Fund:    '#50C878',
-  DeFi:    '#FF9500',
-  Whale:   '#B19CD9',
-  Unknown: '#5A6A8A',
-};
-
-const TYPE_BG = {
-  CEX:     'rgba(77,166,255,0.15)',
-  Fund:    'rgba(80,200,120,0.15)',
-  DeFi:    'rgba(255,149,0,0.15)',
-  Whale:   'rgba(177,156,217,0.15)',
-  Unknown: 'rgba(90,106,138,0.12)',
-};
-
-// ─── Stats bar ────────────────────────────────────────────────────────────────
-function StatsBar({ results, isDark }) {
-  const entries = Object.values(results);
-  if (!entries.length) return null;
-  const counts = { CEX: 0, Fund: 0, DeFi: 0, Whale: 0, Unknown: 0 };
-  entries.forEach(e => { counts[classifyEntity(e)]++; });
-  const total = entries.length;
+export default function Landing() {
   return (
-    <div style={{ margin: '16px 0 0', borderRadius: 8, background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, padding: '14px 16px' }}>
-      <div style={{ fontFamily: "'Space Mono',monospace", fontSize: 10, color: '#5A6A8A', letterSpacing: 1, marginBottom: 10 }}>
-        ENTITY BREAKDOWN — {total} WALLET{total !== 1 ? 'S' : ''}
-      </div>
-      <div style={{ height: 8, borderRadius: 4, overflow: 'hidden', display: 'flex', marginBottom: 10 }}>
-        {Object.entries(counts).filter(([, v]) => v > 0).map(([type, count]) => (
-          <div key={type} style={{ flex: count, background: TYPE_COLORS[type] }} title={`${type}: ${count}`} />
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-        {Object.entries(counts).filter(([, v]) => v > 0).map(([type, count]) => (
-          <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: TYPE_COLORS[type] }} />
-            <span style={{ color: TYPE_COLORS[type], fontFamily: "'Space Mono',monospace", fontSize: 10 }}>{type}</span>
-            <span style={{ color: '#5A6A8A', fontFamily: "'Space Mono',monospace", fontSize: 10 }}>{count} ({Math.round(count / total * 100)}%)</span>
+    <Layout title="Wallet Intel — On-Chain Intelligence for Everyone" description="Identify wallets, map relationships, and discover on-chain entities with institutional-grade intelligence.">
+      <style>{`
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes fadeUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+        .fu1{animation:fadeUp 0.6s 0.1s ease both}
+        .fu2{animation:fadeUp 0.6s 0.2s ease both}
+        .fu3{animation:fadeUp 0.6s 0.3s ease both}
+        .fu4{animation:fadeUp 0.6s 0.4s ease both}
+        .feat-card:hover{border-color:rgba(240,192,64,0.2)!important;background:rgba(240,192,64,0.03)!important}
+        .cta-primary:hover{opacity:0.85}
+        .cta-ghost:hover{border-color:rgba(240,192,64,0.3)!important;color:#F0C040!important}
+      `}</style>
+
+      {/* Grid bg */}
+      <div style={{ position:'fixed',inset:0,zIndex:0,pointerEvents:'none', backgroundImage:'linear-gradient(rgba(240,192,64,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(240,192,64,0.03) 1px,transparent 1px)', backgroundSize:'60px 60px' }} />
+      <div style={{ position:'fixed',top:'20%',left:'50%',transform:'translateX(-50%)',width:700,height:500,borderRadius:'50%', background:'radial-gradient(ellipse,rgba(240,192,64,0.05) 0%,transparent 70%)',pointerEvents:'none',zIndex:0 }} />
+
+      {/* Hero */}
+      <section style={{ position:'relative',zIndex:1,padding:'120px 24px 80px',textAlign:'center' }}>
+        <div style={{ maxWidth:800,margin:'0 auto' }}>
+          <div className="fu1" style={{ display:'inline-flex',alignItems:'center',gap:8,marginBottom:32,padding:'6px 16px',border:'1px solid rgba(240,192,64,0.2)',borderRadius:100,background:'rgba(240,192,64,0.05)' }}>
+            <span style={{ width:6,height:6,borderRadius:'50%',background:'#F0C040',animation:'pulse 2s infinite',display:'inline-block' }} />
+            <span style={{ fontFamily:"'Space Mono',monospace",fontSize:10,color:'#F0C040',letterSpacing:'0.1em' }}>POWERED BY ARKHAM INTELLIGENCE</span>
           </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
-// ─── Results table ────────────────────────────────────────────────────────────
-function ResultsTable({ results, isDark }) {
-  const [copied, setCopied] = useState(null);
-  const entries = Object.entries(results);
-  if (!entries.length) return null;
+          <h1 className="fu2" style={{ fontFamily:"'DM Serif Display',serif",fontSize:'clamp(44px,7vw,82px)',fontWeight:400,lineHeight:1.08,color:'#F0F4F8',marginBottom:24,letterSpacing:'-0.02em' }}>
+            See What the{' '}
+            <span style={{ color:'#F0C040',fontStyle:'italic' }}>Blockchain</span>
+            {' '}Knows
+          </h1>
 
-  const border = isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.07)';
+          <p className="fu3" style={{ fontFamily:"'Space Mono',monospace",fontSize:12,color:'#4A5A7A',lineHeight:1.9,maxWidth:540,margin:'0 auto 48px',letterSpacing:'0.02em' }}>
+            Wallet Intel gives you institutional-grade blockchain intelligence — label wallets, map on-chain relationships, and discover entities in seconds. Built for everyone in crypto.
+          </p>
 
-  const copyAddr = (addr) => {
-    navigator.clipboard.writeText(addr);
-    setCopied(addr);
-    setTimeout(() => setCopied(null), 1500);
-  };
-
-  const exportCSV = () => {
-    const rows = [
-      'Address,Label,Type,Note',
-      ...entries.map(([addr, entry]) =>
-        `"${addr}","${getLabel(entry)}","${classifyEntity(entry)}","${getNote(entry)}"`
-      ),
-    ];
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'wallet-intel.csv'; a.click();
-  };
-
-  return (
-    <div style={{ marginTop: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <span style={{ color: '#5A6A8A', fontFamily: "'Space Mono',monospace", fontSize: 10, letterSpacing: 1 }}>
-          {entries.length} RESULT{entries.length !== 1 ? 'S' : ''}
-        </span>
-        <button onClick={exportCSV} style={{ background: 'transparent', border: '1px solid #F0C040', borderRadius: 4, color: '#F0C040', cursor: 'pointer', fontFamily: "'Space Mono',monospace", fontSize: 11, padding: '4px 12px' }}>
-          ↓ Export CSV
-        </button>
-      </div>
-      <div style={{ borderRadius: 8, border: isDark ? '1px solid rgba(255,255,255,0.07)' : '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'Space Mono',monospace", fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }}>
-              {['Address', 'Label', 'Type', 'Note'].map(h => (
-                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: '#5A6A8A', fontWeight: 400, fontSize: 10, letterSpacing: 1, borderBottom: border }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map(([addr, entry], i) => {
-              const label = getLabel(entry);
-              const type = classifyEntity(entry);
-              const note = getNote(entry);
-              const color = isDark ? '#E8E8E8' : '#111827';
-              return (
-                <tr key={addr} style={{ background: i % 2 === 0 ? 'transparent' : (isDark ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.015)') }}>
-                  <td style={{ padding: '8px 12px', borderBottom: border }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ color: isDark ? '#A0B0C8' : '#6B7280', fontSize: 11 }}>{shortAddr(addr)}</span>
-                      <button onClick={() => copyAddr(addr)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: copied === addr ? '#50C878' : '#5A6A8A', fontSize: 11, padding: 0 }}>
-                        {copied === addr ? '✓' : '⎘'}
-                      </button>
-                    </div>
-                  </td>
-                  <td style={{ padding: '8px 12px', borderBottom: border, color: label === '—' ? '#5A6A8A' : color, fontWeight: label !== '—' ? 600 : 400 }}>{label}</td>
-                  <td style={{ padding: '8px 12px', borderBottom: border }}>
-                    <span style={{ background: TYPE_BG[type], color: TYPE_COLORS[type], border: `1px solid ${TYPE_COLORS[type]}55`, borderRadius: 4, padding: '2px 8px', fontSize: 10, fontWeight: 700, letterSpacing: 0.5 }}>
-                      {type}
-                    </span>
-                  </td>
-                  <td style={{ padding: '8px 12px', borderBottom: border, color: '#5A6A8A', fontSize: 11 }}>{note || '—'}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-// ─── Relationship Map ─────────────────────────────────────────────────────────
-function RelationshipMap({ isDark }) {
-  const [address, setAddress] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [nodes, setNodes] = useState([]);
-  const [centerInfo, setCenterInfo] = useState(null);
-  const [selected, setSelected] = useState(null);
-
-  const W = 560, H = 400, CX = W / 2, CY = H / 2;
-
-  const lookup = async () => {
-    const addr = address.trim();
-    if (!addr) return;
-    setLoading(true); setError(''); setNodes([]); setCenterInfo(null); setSelected(null);
-
-    try {
-      // Fetch transfers
-      const txRes = await fetch(`/api/lookup?address=${addr}`);
-      const txData = await txRes.json();
-      if (txData.error) throw new Error(txData.error);
-
-      const transfers = txData.transfers || [];
-      if (!transfers.length) {
-        setError('No transfers found — try a more active wallet or lower the USD threshold.');
-        setLoading(false); return;
-      }
-
-      // Aggregate counterparties
-      const cmap = {};
-      transfers.forEach(tx => {
-        const fromAddr = tx.fromAddress?.address;
-        const toAddr = tx.toAddress?.address;
-        const usd = tx.historicalUSD || 0;
-        const isOut = fromAddr?.toLowerCase() === addr.toLowerCase();
-        const counterparty = isOut ? toAddr : fromAddr;
-        const cpEntry = isOut ? tx.toAddress : tx.fromAddress;
-        if (!counterparty || counterparty.toLowerCase() === addr.toLowerCase()) return;
-        if (!cmap[counterparty]) cmap[counterparty] = { volume: 0, count: 0, entry: null, direction: isOut ? 'out' : 'in' };
-        cmap[counterparty].volume += usd;
-        cmap[counterparty].count++;
-        if (cpEntry) cmap[counterparty].entry = cpEntry;
-      });
-
-      const top = Object.entries(cmap).sort((a, b) => b[1].volume - a[1].volume).slice(0, 10);
-
-      // Batch label lookup
-      const allAddrs = [addr, ...top.map(([a]) => a)];
-      const labelRes = await fetch('/api/lookup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ addresses: allAddrs }),
-      });
-      const labelData = await labelRes.json();
-
-      const centerEntry = labelData[addr] || labelData[addr.toLowerCase()];
-      setCenterInfo({ address: addr, label: getLabel(centerEntry) !== '—' ? getLabel(centerEntry) : shortAddr(addr), type: classifyEntity(centerEntry) });
-
-      const maxVol = top[0]?.[1].volume || 1;
-      const angleStep = (2 * Math.PI) / Math.max(top.length, 1);
-      const radius = 148;
-
-      const builtNodes = top.map(([a, meta], i) => {
-        const angle = i * angleStep - Math.PI / 2;
-        const entry = labelData[a] || labelData[a.toLowerCase()] || meta.entry;
-        const label = getLabel(entry) !== '—' ? getLabel(entry) : shortAddr(a);
-        const type = classifyEntity(entry);
-        const size = 7 + (meta.volume / maxVol) * 13;
-        return {
-          id: a, x: CX + radius * Math.cos(angle), y: CY + radius * Math.sin(angle),
-          label, type, volume: meta.volume, count: meta.count, size, direction: meta.direction,
-        };
-      });
-
-      setNodes(builtNodes);
-    } catch (err) {
-      setError(err.message);
-    }
-    setLoading(false);
-  };
-
-  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
-  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.12)';
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <input value={address} onChange={e => setAddress(e.target.value)} onKeyDown={e => e.key === 'Enter' && lookup()}
-          placeholder="0x... — enter any wallet address"
-          style={{ flex: 1, background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: 6, color: isDark ? '#E8E8E8' : '#111', fontFamily: "'Space Mono',monospace", fontSize: 13, outline: 'none', padding: '10px 14px' }} />
-        <button onClick={lookup} disabled={loading}
-          style={{ background: '#F0C040', border: 'none', borderRadius: 6, color: '#0A0E1A', cursor: loading ? 'not-allowed' : 'pointer', fontFamily: "'Syne',sans-serif", fontSize: 13, fontWeight: 700, opacity: loading ? 0.6 : 1, padding: '10px 22px', whiteSpace: 'nowrap' }}>
-          {loading ? 'Mapping…' : 'Map It'}
-        </button>
-      </div>
-
-      {error && (
-        <div style={{ background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.25)', borderRadius: 6, color: '#FF8080', fontFamily: "'Space Mono',monospace", fontSize: 12, padding: '10px 14px', marginBottom: 12 }}>
-          {error}
+          <div className="fu4" style={{ display:'flex',gap:12,justifyContent:'center',flexWrap:'wrap' }}>
+            <Link href="/search" className="cta-primary" style={{ display:'inline-flex',alignItems:'center',gap:8,padding:'14px 28px',background:'#F0C040',color:'#070B12',borderRadius:8,fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:13,letterSpacing:'0.08em',transition:'opacity 0.15s' }}>
+              START SEARCHING →
+            </Link>
+            <Link href="/products" className="cta-ghost" style={{ display:'inline-flex',alignItems:'center',gap:8,padding:'14px 28px',background:'transparent',color:'#5A6A8A',border:'1px solid rgba(255,255,255,0.1)',borderRadius:8,fontFamily:"'Syne',sans-serif",fontWeight:600,fontSize:13,letterSpacing:'0.08em',transition:'all 0.15s' }}>
+              VIEW ALL TOOLS
+            </Link>
+          </div>
         </div>
-      )}
+      </section>
 
-      {nodes.length > 0 && (
-        <>
-          <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)', borderRadius: 12, border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)'}`, display: 'block' }}>
-            {/* Dashed orbit ring */}
-            <circle cx={CX} cy={CY} r={148} fill="none" stroke={isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} strokeDasharray="4 6" />
+      {/* Stats */}
+      <section style={{ position:'relative',zIndex:1,padding:'0 24px 80px' }}>
+        <div style={{ maxWidth:800,margin:'0 auto',display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:1,background:'rgba(255,255,255,0.04)',borderRadius:12,overflow:'hidden',border:'1px solid rgba(255,255,255,0.06)' }}>
+          {STATS.map((s,i) => (
+            <div key={i} style={{ padding:'28px 20px',textAlign:'center',background:'#070B12' }}>
+              <div style={{ fontFamily:"'DM Serif Display',serif",fontSize:36,color:'#F0C040',marginBottom:6 }}>{s.value}</div>
+              <div style={{ fontFamily:"'Space Mono',monospace",fontSize:9,color:'#E2E8F0',letterSpacing:'0.1em',textTransform:'uppercase' }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      </section>
 
-            {/* Edges */}
-            {nodes.map(node => {
-              const maxVol = Math.max(...nodes.map(n => n.volume));
-              const opacity = 0.12 + (node.volume / maxVol) * 0.45;
-              const strokeW = 0.5 + (node.volume / maxVol) * 2.5;
-              return (
-                <line key={node.id} x1={CX} y1={CY} x2={node.x} y2={node.y}
-                  stroke={TYPE_COLORS[node.type]} strokeWidth={strokeW} strokeOpacity={opacity} />
-              );
-            })}
-
-            {/* Center node */}
-            <circle cx={CX} cy={CY} r={24} fill="#F0C04020" stroke="#F0C040" strokeWidth={2} />
-            <circle cx={CX} cy={CY} r={30} fill="none" stroke="#F0C040" strokeWidth={0.5} strokeOpacity={0.3} />
-            <text x={CX} y={CY + 4} textAnchor="middle" fill="#F0C040" fontSize={9} fontFamily="'Space Mono',monospace" fontWeight={700}>
-              {centerInfo?.label?.length > 14 ? centerInfo.label.slice(0, 12) + '…' : centerInfo?.label}
-            </text>
-
-            {/* Counterparty nodes */}
-            {nodes.map(node => (
-              <g key={node.id} style={{ cursor: 'pointer' }} onClick={() => setSelected(selected?.id === node.id ? null : node)}>
-                <circle cx={node.x} cy={node.y} r={node.size + 6} fill="transparent" />
-                <circle cx={node.x} cy={node.y} r={node.size}
-                  fill={selected?.id === node.id ? TYPE_COLORS[node.type] : `${TYPE_COLORS[node.type]}22`}
-                  stroke={TYPE_COLORS[node.type]} strokeWidth={selected?.id === node.id ? 0 : 1.5} />
-                <text x={node.x} y={node.y - node.size - 5} textAnchor="middle"
-                  fill={TYPE_COLORS[node.type]} fontSize={9} fontFamily="'Space Mono',monospace">
-                  {node.label.length > 13 ? node.label.slice(0, 11) + '…' : node.label}
-                </text>
-              </g>
-            ))}
-          </svg>
-
-          {/* Legend */}
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, justifyContent: 'center' }}>
-            {[...new Set(nodes.map(n => n.type))].map(type => (
-              <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <div style={{ width: 7, height: 7, borderRadius: '50%', background: TYPE_COLORS[type] }} />
-                <span style={{ color: TYPE_COLORS[type], fontFamily: "'Space Mono',monospace", fontSize: 10 }}>{type}</span>
+      {/* Features */}
+      <section style={{ position:'relative',zIndex:1,padding:'0 24px 100px' }}>
+        <div style={{ maxWidth:1000,margin:'0 auto' }}>
+          <div style={{ textAlign:'center',marginBottom:56 }}>
+            <p style={{ fontFamily:"'Space Mono',monospace",fontSize:10,color:'#F0C040',letterSpacing:'0.2em',marginBottom:16,textTransform:'uppercase' }}>What You Get</p>
+            <h2 style={{ fontFamily:"'DM Serif Display',serif",fontSize:'clamp(28px,4vw,42px)',color:'#F0F4F8',fontWeight:400 }}>Intelligence tools for every use case</h2>
+          </div>
+          <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:16 }}>
+            {FEATURES.map((f,i) => (
+              <div key={i} className="feat-card" style={{ padding:'28px 24px',border:'1px solid rgba(255,255,255,0.06)',borderRadius:12,background:'rgba(255,255,255,0.02)',transition:'all 0.2s' }}>
+                <div style={{ fontSize:24,color:'#F0C040',marginBottom:16 }}>{f.icon}</div>
+                <h3 style={{ fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:14,color:'#E2E8F0',marginBottom:10,letterSpacing:'0.03em' }}>{f.title}</h3>
+                <p style={{ fontFamily:"'Space Mono',monospace",fontSize:11,color:'#3A4A6A',lineHeight:1.7 }}>{f.desc}</p>
               </div>
             ))}
-            <span style={{ color: '#5A6A8A', fontFamily: "'Space Mono',monospace", fontSize: 10 }}>· node size = transfer volume · click to inspect</span>
-          </div>
-
-          {/* Selected node detail */}
-          {selected && (
-            <div style={{ marginTop: 12, background: TYPE_BG[selected.type], border: `1px solid ${TYPE_COLORS[selected.type]}44`, borderRadius: 8, padding: '12px 16px', fontFamily: "'Space Mono',monospace" }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ color: TYPE_COLORS[selected.type], fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{selected.label}</div>
-                  <div style={{ color: '#5A6A8A', fontSize: 11, marginBottom: 4 }}>{selected.id}</div>
-                  <div style={{ color: isDark ? '#A0B0C8' : '#6B7280', fontSize: 11 }}>
-                    {selected.count} tx · {fmtUSD(selected.volume)} total · {selected.direction === 'out' ? '→ outflow' : '← inflow'}
-                  </div>
-                </div>
-                <span style={{ background: TYPE_BG[selected.type], color: TYPE_COLORS[selected.type], border: `1px solid ${TYPE_COLORS[selected.type]}44`, borderRadius: 4, padding: '3px 10px', fontSize: 10, fontWeight: 700 }}>
-                  {selected.type}
-                </span>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {!nodes.length && !loading && !error && (
-        <div style={{ textAlign: 'center', padding: '48px 24px', color: '#5A6A8A', fontFamily: "'Space Mono',monospace", fontSize: 12, lineHeight: 1.8 }}>
-          Enter any wallet to see its top counterparties mapped visually.<br />
-          <span style={{ fontSize: 10, opacity: 0.6 }}>Shows up to 10 connections · Node size = transfer volume · Click any node to inspect it</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Main app ─────────────────────────────────────────────────────────────────
-export default function Home() {
-  const [theme, setTheme] = useState('dark');
-  const [tab, setTab] = useState('single');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [results, setResults] = useState({});
-  const [singleAddr, setSingleAddr] = useState('');
-  const [multiAddrs, setMultiAddrs] = useState('');
-  // CSV state
-  const [csvResults, setCsvResults] = useState(null);
-  const [csvGroupTab, setCsvGroupTab] = useState('All');
-  const [csvName, setCsvName] = useState('');
-  const [csvCopied, setCsvCopied] = useState(null);
-  const [csvAddresses, setCsvAddresses] = useState([]);
-  const [overrides, setOverrides] = useState({}); // manual reclassifications: {addr: 'CEX'|'Fund'|'DeFi'|'Whale'|'Unclassified'}
-  const [selected, setSelected] = useState(new Set());
-  const fileInputRef = useRef(null);
-
-  const isDark = true;
-  const bg = '#0A0E1A';
-  const surface = 'rgba(255,255,255,0.04)';
-  const borderColor = 'rgba(255,255,255,0.08)';
-  const textColor = '#E8E8E8';
-  const subColor = '#5A6A8A';
-  const inputStyle = {
-    background: 'rgba(255,255,255,0.05)', border: `1px solid ${borderColor}`,
-    borderRadius: 6, color: textColor, fontFamily: "'Space Mono',monospace",
-    fontSize: 13, outline: 'none', padding: '10px 14px', width: '100%', boxSizing: 'border-box',
-  };
-
-  // Classification — only auto-classify what Arkham confirms
-  const classifyAddr = (addr, entry) => {
-    if (overrides[addr]) return overrides[addr];
-    if (!entry) return 'Unclassified';
-    const type = (entry.arkhamEntity?.type || '').toLowerCase();
-    const name = (entry.arkhamEntity?.name || entry.arkhamLabel?.name || '').toLowerCase();
-    if (type.includes('cex') || type.includes('exchange') ||
-        ['binance','coinbase','kraken','okx','bybit','gate','kucoin','huobi','upbit','bitfinex','gemini','crypto.com','bitmex','bitget','mexc'].some(x => name.includes(x)) ||
-        name.includes('deposit') || name.includes('withdrawal') || name.includes('hot wallet'))
-      return 'CEX';
-    if (type.includes('fund') || type.includes('vc') ||
-        ['fund','capital','ventures','invest','partners','asset'].some(x => name.includes(x)))
-      return 'Fund';
-    if (type.includes('defi') || type.includes('protocol') || type.includes('contract') ||
-        name.includes('bridge') || name.includes('router') || name.includes('pool') || name.includes('vault'))
-      return 'DeFi';
-    // Has a label but not infrastructure = could be whale, but we leave it Unclassified for user to decide
-    return 'Unclassified';
-  };
-
-  const getEntityName = (entry) => entry?.arkhamEntity?.name || '';
-  const getLabelName = (entry) => entry?.arkhamLabel?.name || '';
-
-  // ── Single / Multi lookup ──────────────────────────────────────────────────
-  const doLookup = async (addresses) => {
-    if (!addresses.length) return;
-    setLoading(true); setError(''); setResults({});
-    setCsvResults(null); setCsvGroupTab('All'); setSelected(new Set()); setOverrides({});
-    try {
-      const res = await fetch('/api/lookup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ addresses }),
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      if (tab === 'multi') {
-        setCsvResults(data);
-        setCsvName(`${addresses.length} addresses`);
-      } else {
-        setResults(data);
-      }
-    } catch (err) { setError(err.message); }
-    setLoading(false);
-  };
-
-  // ── CSV ────────────────────────────────────────────────────────────────────
-  const handleCSVFile = async (file) => {
-    if (!file) return;
-    setCsvName(file.name); setCsvResults(null); setCsvAddresses([]);
-    setCsvGroupTab('All'); setError(''); setOverrides({}); setSelected(new Set());
-    try {
-      const text = await file.text();
-      const matches = text.match(/0x[a-fA-F0-9]{40}/gi) || [];
-      const unique = [...new Set(matches.map(a => a.toLowerCase()))];
-      if (!unique.length) { setError('No Ethereum addresses found in this file.'); return; }
-      setCsvAddresses(unique);
-    } catch (err) { setError(err.message); }
-  };
-
-  const runCSVLookup = async () => {
-    if (!csvAddresses.length) return;
-    setLoading(true); setError(''); setCsvResults(null); setOverrides({}); setSelected(new Set());
-    try {
-      const res = await fetch('/api/lookup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ addresses: csvAddresses }),
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setCsvResults(data);
-    } catch (err) { setError(err.message); }
-    setLoading(false);
-  };
-
-  const clearCSV = () => {
-    setCsvResults(null); setCsvName(''); setCsvGroupTab('All');
-    setCsvAddresses([]); setError(''); setOverrides({}); setSelected(new Set());
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  // ── Grouping with overrides ────────────────────────────────────────────────
-  const csvEntries = csvResults ? Object.entries(csvResults) : [];
-  const allGroups = ['All', 'CEX', 'Fund', 'DeFi', 'Whale', 'Unclassified'];
-  const csvGroups = { All: [], CEX: [], Fund: [], DeFi: [], Whale: [], Unclassified: [] };
-  csvEntries.forEach(([addr, entry]) => {
-    const type = classifyAddr(addr, entry);
-    csvGroups['All'].push([addr, entry, type]);
-    csvGroups[type].push([addr, entry, type]);
-  });
-  const activeGroup = csvGroups[csvGroupTab] || [];
-
-  // ── Selection + reclassification ──────────────────────────────────────────
-  const toggleSelect = (addr) => {
-    const s = new Set(selected);
-    s.has(addr) ? s.delete(addr) : s.add(addr);
-    setSelected(s);
-  };
-  const toggleSelectAll = () => {
-    if (selected.size === activeGroup.length) setSelected(new Set());
-    else setSelected(new Set(activeGroup.map(([addr]) => addr)));
-  };
-  const reclassifySelected = (newType) => {
-    const o = { ...overrides };
-    selected.forEach(addr => { o[addr] = newType; });
-    setOverrides(o);
-    setSelected(new Set());
-  };
-
-  // ── Export ─────────────────────────────────────────────────────────────────
-  const exportGroupCSV = (groupName) => {
-    const rows = ['Address,Entity,Label,Type,Note',
-      ...csvGroups[groupName].map(([addr, entry, type]) =>
-        `"${addr}","${getEntityName(entry)}","${getLabelName(entry)}","${type}","${entry?.arkhamEntity?.note || ''}"`)];
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `wallet-intel-${groupName.toLowerCase()}.csv`; a.click();
-  };
-
-  const copyGroupSQL = (groupName) => {
-    const addrs = csvGroups[groupName].map(([addr]) => `  '${addr}'`).join(',\n');
-    const sql = `-- ${groupName} addresses (${csvGroups[groupName].length} wallets)\nLOWER(address) IN (\n${addrs}\n)`;
-    navigator.clipboard.writeText(sql);
-    setCsvCopied(groupName);
-    setTimeout(() => setCsvCopied(null), 2000);
-  };
-
-  const multiCount = multiAddrs.split(/[\n,]+/).filter(a => a.trim().startsWith('0x') && a.trim().length === 42).length;
-
-  const tabStyle = (t) => ({
-    background: tab === t ? '#F0C040' : 'transparent',
-    border: `1px solid ${tab === t ? '#F0C040' : borderColor}`,
-    borderRadius: 6, color: tab === t ? '#0A0E1A' : subColor,
-    cursor: 'pointer', fontFamily: "'Syne',sans-serif", fontSize: 13,
-    fontWeight: 700, padding: '7px 16px', transition: 'all 0.15s',
-  });
-
-  const btnStyle = (disabled) => ({
-    background: '#F0C040', border: 'none', borderRadius: 6, color: '#0A0E1A',
-    cursor: disabled ? 'not-allowed' : 'pointer', fontFamily: "'Syne',sans-serif",
-    fontSize: 13, fontWeight: 700, opacity: disabled ? 0.6 : 1,
-    padding: '10px 22px', whiteSpace: 'nowrap',
-  });
-
-  const ghostBtn = (color) => ({
-    background: 'transparent', border: `1px solid ${color}44`,
-    borderRadius: 5, color, cursor: 'pointer',
-    fontFamily: "'Space Mono',monospace", fontSize: 11, padding: '5px 12px',
-  });
-
-  const ALL_TYPES = ['CEX', 'Fund', 'DeFi', 'Whale', 'Unclassified'];
-  const TYPE_COLORS_EXT = { ...TYPE_COLORS, Unclassified: '#5A6A8A', Whale: '#B19CD9' };
-  const TYPE_BG_EXT = { ...TYPE_BG, Unclassified: 'rgba(90,106,138,0.12)', Whale: 'rgba(177,156,217,0.15)' };
-
-  return (
-    <>
-      <Head>
-        <title>Wallet Intel</title>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
-      </Head>
-
-      <div style={{ background: bg, minHeight: '100vh', paddingBottom: 80 }}>
-        {/* Header */}
-        <div style={{ borderBottom: `1px solid ${borderColor}`, padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: 960, margin: '0 auto' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#F0C040', boxShadow: '0 0 10px #F0C040' }} />
-              <span style={{ color: '#F0C040', fontFamily: "'Syne',sans-serif", fontSize: 18, fontWeight: 800, letterSpacing: 2 }}>WALLET INTEL</span>
-            </div>
-            <div style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10, marginTop: 2, letterSpacing: 0.5 }}>
-              On-chain label intelligence · Powered by <span style={{ color: '#4DA6FF' }}>Arkham</span>
-            </div>
           </div>
         </div>
+      </section>
 
-        <div style={{ maxWidth: 960, margin: '32px auto', padding: '0 16px' }}>
-          <div style={{ background: surface, border: `1px solid ${borderColor}`, borderRadius: 14, padding: 24 }}>
-
-            {/* Main tabs */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-              {[
-                { id: 'single', label: 'Single Address' },
-                { id: 'multi',  label: 'Multiple Addresses' },
-                { id: 'csv',    label: 'Upload CSV' },
-                { id: 'map',    label: '🕸 Relationship Map' },
-              ].map(t => (
-                <button key={t.id} onClick={() => { setTab(t.id); setResults({}); setError(''); }} style={tabStyle(t.id)}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Single */}
-            {tab === 'single' && (
-  <div>
-    <div style={{ display: 'flex', gap: 8 }}>
-      <input value={singleAddr} onChange={e => { setSingleAddr(e.target.value); setError(''); if (!e.target.value.trim()) { setResults({}); } }}
-        onKeyDown={e => {
-          if (e.key === 'Enter') {
-            const addr = singleAddr.trim();
-            if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) { setError('Invalid Ethereum address — must be 0x followed by exactly 40 hex characters.'); return; }
-            doLookup([addr]);
-          }
-        }}
-        placeholder="0x..." style={{ ...inputStyle, flex: 1 }} />
-      <button onClick={() => {
-        const addr = singleAddr.trim();
-        if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) { setError('Invalid Ethereum address — must be 0x followed by exactly 40 hex characters.'); return; }
-        doLookup([addr]);
-      }} disabled={loading} style={btnStyle(loading)}>
-        {loading ? 'Looking up…' : 'Look Up'}
-      </button>
-    </div>
-  </div>
-)}
-
-            {/* Multi */}
-            {tab === 'multi' && (
-              <div>
-                <textarea value={multiAddrs} onChange={e => { setMultiAddrs(e.target.value); if (!e.target.value.trim()) { setCsvResults(null); setCsvName(''); setSelected(new Set()); setOverrides({}); } }}
-                  placeholder={'Paste addresses — one per line or comma-separated\n0x...\n0x...'}
-                  rows={5} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.7 }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                  <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10 }}>
-                    {multiCount} valid address{multiCount !== 1 ? 'es' : ''} · max 50
-                  </span>
-                  <button onClick={() => doLookup(multiAddrs.split(/[\n,]+/).map(a => a.trim()).filter(a => a.startsWith('0x') && a.length === 42))}
-                    disabled={loading} style={btnStyle(loading)}>
-                    {loading ? 'Looking up…' : 'Look Up All'}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* CSV TAB */}
-            {(tab === 'csv' || tab === 'multi') && (
-              <div>
-                {/* Upload zone */}
-                {!csvResults && tab === 'csv' && (
-                  <div
-                    onClick={() => fileInputRef.current?.click()}
-                    style={{ border: `2px dashed ${borderColor}`, borderRadius: 8, cursor: 'pointer', padding: '36px 24px', textAlign: 'center' }}>
-                    <div style={{ color: '#F0C040', fontSize: 28, marginBottom: 8 }}>⬆</div>
-                    <div style={{ color: textColor, fontFamily: "'Syne',sans-serif", fontSize: 14, fontWeight: 700 }}>
-                      {csvName || 'Click to upload a CSV file'}
-                    </div>
-                    <div style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10, marginTop: 4 }}>
-                      Any CSV containing 0x addresses — auto-detected
-                    </div>
-                    <input ref={fileInputRef} type="file" accept=".csv,.txt" style={{ display: 'none' }}
-                      onChange={e => handleCSVFile(e.target.files[0])} />
-                  </div>
-                )}
-
-                {/* Count + Look Up */}
-                {csvAddresses.length > 0 && !csvResults && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-                    <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 11 }}>
-                      {csvAddresses.length} addresses detected in <span style={{ color: textColor }}>{csvName}</span>
-                    </span>
-                    <button onClick={runCSVLookup} disabled={loading} style={btnStyle(loading)}>
-                      {loading ? 'Looking up…' : 'Look Up All'}
-                    </button>
-                  </div>
-                )}
-
-                {/* Results */}
-                {csvResults && !loading && (
-                  <div>
-                    {/* Top bar */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                      <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10 }}>
-                        {csvEntries.length} addresses screened · <span style={{ color: '#A0B0C8' }}>{csvName}</span>
-                      </span>
-                      <button onClick={clearCSV} style={{ ...ghostBtn('#FF8080'), fontSize: 11 }}>✕ Clear</button>
-                    </div>
-
-                    {/* Stats bar */}
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ height: 8, borderRadius: 4, overflow: 'hidden', display: 'flex', marginBottom: 8 }}>
-                        {ALL_TYPES.filter(t => csvGroups[t].length > 0).map(type => (
-                          <div key={type} style={{ flex: csvGroups[type].length, background: TYPE_COLORS_EXT[type] }} title={`${type}: ${csvGroups[type].length}`} />
-                        ))}
-                      </div>
-                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                        {ALL_TYPES.filter(t => csvGroups[t].length > 0).map(type => (
-                          <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <div style={{ width: 7, height: 7, borderRadius: '50%', background: TYPE_COLORS_EXT[type] }} />
-                            <span style={{ color: TYPE_COLORS_EXT[type], fontFamily: "'Space Mono',monospace", fontSize: 10 }}>{type}</span>
-                            <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10 }}>
-                              {csvGroups[type].length} ({Math.round(csvGroups[type].length / csvEntries.length * 100)}%)
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Group tabs */}
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                      {['All', ...ALL_TYPES].filter((t, i, arr) => arr.indexOf(t) === i).map(type => {
-                        const count = type === 'All' ? csvEntries.length : csvGroups[type].length;
-                        if (type !== 'All' && count === 0) return null;
-                        const active = csvGroupTab === type;
-                        const color = type === 'All' ? '#F0C040' : TYPE_COLORS_EXT[type];
-                        return (
-                          <button key={type} onClick={() => { setCsvGroupTab(type); setSelected(new Set()); }} style={{
-                            background: active ? `${color}20` : 'transparent',
-                            border: `1px solid ${active ? color : borderColor}`,
-                            borderRadius: 5, color: active ? color : subColor,
-                            cursor: 'pointer', fontFamily: "'Space Mono',monospace",
-                            fontSize: 11, fontWeight: active ? 700 : 400, padding: '4px 12px',
-                          }}>
-                            {type} ({count})
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Export/Copy actions */}
-                    {activeGroup.length > 0 && (
-                      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                        <button onClick={() => exportGroupCSV(csvGroupTab)} style={ghostBtn('#F0C040')}>
-                          ↓ Download {csvGroupTab} CSV
-                        </button>
-                        <button onClick={() => copyGroupSQL(csvGroupTab)} style={ghostBtn(csvCopied === csvGroupTab ? '#50C878' : '#4DA6FF')}>
-                          {csvCopied === csvGroupTab ? '✓ Copied!' : '{ } Copy as SQL'}
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Table */}
-                    <div style={{ borderRadius: 8, border: `1px solid ${borderColor}`, overflow: 'hidden', maxHeight: 420, overflowY: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'Space Mono',monospace", fontSize: 11 }}>
-                        <thead style={{ position: 'sticky', top: 0, background: '#0D1220', zIndex: 1 }}>
-                          <tr>
-                            <th style={{ padding: '8px 10px', borderBottom: `1px solid ${borderColor}`, width: 32 }}>
-                              <input type="checkbox"
-                                checked={selected.size === activeGroup.length && activeGroup.length > 0}
-                                onChange={toggleSelectAll}
-                                style={{ cursor: 'pointer', accentColor: '#F0C040' }} />
-                            </th>
-                            {['Address', 'Entity', 'Label', 'Type', 'Note'].map(h => (
-                              <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: subColor, fontWeight: 400, fontSize: 10, letterSpacing: 1, borderBottom: `1px solid ${borderColor}` }}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {activeGroup.map(([addr, entry, type], i) => {
-                            const entity = getEntityName(entry);
-                            const label = getLabelName(entry);
-                            const note = entry?.arkhamEntity?.note || '';
-                            const isSelected = selected.has(addr);
-                            return (
-                              <tr key={addr} onClick={() => toggleSelect(addr)} style={{ background: isSelected ? 'rgba(240,192,64,0.06)' : i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)', cursor: 'pointer' }}>
-                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, textAlign: 'center' }}>
-                                  <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(addr)}
-                                    onClick={e => e.stopPropagation()}
-                                    style={{ cursor: 'pointer', accentColor: '#F0C040' }} />
-                                </td>
-                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, color: '#A0B0C8' }}>{shortAddr(addr)}</td>
-                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, color: entity ? textColor : subColor, fontWeight: entity ? 700 : 400 }}>{entity || '—'}</td>
-                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, color: label ? '#C8D8F0' : subColor }}>{label || '—'}</td>
-                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}` }}>
-                                  <span style={{ background: TYPE_BG_EXT[type], color: TYPE_COLORS_EXT[type], border: `1px solid ${TYPE_COLORS_EXT[type]}44`, borderRadius: 4, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>{type}</span>
-                                </td>
-                                <td style={{ padding: '7px 10px', borderBottom: `1px solid ${borderColor}`, color: subColor, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{note || '—'}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Floating reclassify bar */}
-                    {selected.size > 0 && (
-                      <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: '#0D1525', border: '2px solid #F0C040', borderRadius: 10, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', boxShadow: '0 8px 32px rgba(0,0,0,0.6)', maxWidth: 700, width: 'calc(100% - 48px)', zIndex: 100 }}>
-                        <span style={{ color: '#F0C040', fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13 }}>
-                          {selected.size} selected
-                        </span>
-                        <span style={{ color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 11 }}>Move to →</span>
-                        {ALL_TYPES.map(type => (
-                          <button key={type} onClick={() => reclassifySelected(type)} style={{
-                            background: `${TYPE_COLORS_EXT[type]}22`, border: `1px solid ${TYPE_COLORS_EXT[type]}`,
-                            borderRadius: 4, color: TYPE_COLORS_EXT[type], cursor: 'pointer',
-                            fontFamily: "'Syne',sans-serif", fontSize: 12, fontWeight: 700, padding: '5px 14px'
-                          }}>
-                            {type}
-                          </button>
-                        ))}
-                        <button onClick={() => setSelected(new Set())} style={{ background: 'transparent', border: 'none', color: subColor, cursor: 'pointer', fontFamily: "'Space Mono',monospace", fontSize: 11, marginLeft: 'auto' }}>
-                          ✕ Deselect all
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Relationship Map */}
-            {tab === 'map' && <RelationshipMap isDark={isDark} />}
-
-            {/* Error */}
-            {error && (
-              <div style={{ background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.25)', borderRadius: 6, color: '#FF8080', fontFamily: "'Space Mono',monospace", fontSize: 12, marginTop: 12, padding: '10px 14px' }}>
-                {error}
-              </div>
-            )}
-
-            {/* Single results only */}
-            {tab === 'single' && (
-              <>
-                <StatsBar results={results} isDark={isDark} />
-                <ResultsTable results={results} isDark={isDark} />
-              </>
-            )}
-          </div>
-
-          <div style={{ textAlign: 'center', marginTop: 20, color: subColor, fontFamily: "'Space Mono',monospace", fontSize: 10 }}>
-            Built by{' '}
-            <a href="https://twitter.com/modestus_eth" target="_blank" rel="noreferrer" style={{ color: '#4DA6FF', textDecoration: 'none' }}>@modestus_eth</a>
-            {''} · Data from Arkham Intelligence
-          </div>
+      {/* CTA Banner */}
+      <section style={{ position:'relative',zIndex:1,padding:'0 24px 100px' }}>
+        <div style={{ maxWidth:680,margin:'0 auto',padding:'56px 40px',border:'1px solid rgba(240,192,64,0.15)',borderRadius:16,background:'rgba(240,192,64,0.03)',textAlign:'center' }}>
+          <h2 style={{ fontFamily:"'DM Serif Display',serif",fontSize:'clamp(24px,4vw,38px)',color:'#F0F4F8',fontWeight:400,marginBottom:16 }}>Ready to explore the chain?</h2>
+          <p style={{ fontFamily:"'Space Mono',monospace",fontSize:11,color:'#3A4A6A',marginBottom:32,lineHeight:1.8 }}>No sign-up required. Start identifying wallets instantly.</p>
+          <Link href="/search" style={{ display:'inline-flex',alignItems:'center',gap:8,padding:'14px 32px',background:'#F0C040',color:'#070B12',borderRadius:8,fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:13,letterSpacing:'0.08em' }}>
+            GET STARTED FREE →
+          </Link>
         </div>
-      </div>
-    </>
+      </section>
+    </Layout>
   );
 }
